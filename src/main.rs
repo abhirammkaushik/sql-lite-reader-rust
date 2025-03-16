@@ -17,7 +17,9 @@ fn main() -> Result<()> {
         ".dbinfo" => {
             let mut file = File::open(&args[1])?;
             let mut header = [0; 100];
+            let mut page_header = [101; 108];
             file.read_exact(&mut header)?;
+            file.read_exact(&mut page_header)?;
 
             // The page size is stored at the 16th byte offset, using 2 bytes in big-endian order
             #[allow(unused_variables)]
@@ -28,6 +30,9 @@ fn main() -> Result<()> {
 
             // Uncomment this block to pass the first stage
             println!("database page size: {}", page_size);
+
+            let num_tables = u16::from_be_bytes([page_header[3], page_header[4]]);
+            println!("number of tables: {}", num_tables);
         }
         _ => bail!("Missing or invalid command passed: {}", command),
     }
