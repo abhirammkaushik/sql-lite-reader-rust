@@ -22,6 +22,11 @@ fn main() -> Result<()> {
             eprintln!("Logs from your program will appear here!");
 
             let mut file_reader = FileReader::new(path).unwrap();
+            let mut header_reader = file_reader.read_bytes(18).unwrap();
+            let header = header_reader.from_offset(16, 2).unwrap();
+            let page_size = u16::from_be_bytes([header[0], header[1]]);
+            println!("database page size: {}", page_size);
+
             let mut page_reader = PageReader::new(&mut file_reader, 1_u16);
             //    .unwrap()
             //    .read_bytes_from(100, 8)
@@ -34,24 +39,24 @@ fn main() -> Result<()> {
             //let mut page_reader = PageReader::new(&args[1]).unwrap();
             let page = page_reader.read_page();
 
-            //println!("number of tables: {}", page.page_header.cell_count);
+            println!("number of tables: {}", page.page_header.cell_count);
             //let cells = page.cells.len();
             //println!("number of cells {cells}");
-            for cell in page.cells {
-                if cell.record_size == 0 {
-                    continue;
-                }
-
-                print!(
-                    "{:?}",
-                    String::from_utf8_lossy(cell.record.rows.get(2).unwrap())
-                );
-
-                //for row in cell.record.rows {
-                //    let val = String::from_utf8_lossy(row.borrow());
-                //    println!("{val}");
-                //}
-            }
+            //for cell in page.cells {
+            //    if cell.record_size == 0 {
+            //        continue;
+            //    }
+            //
+            //    print!(
+            //        "{:?}",
+            //        String::from_utf8_lossy(cell.record.rows.get(2).unwrap())
+            //    );
+            //
+            //    //for row in cell.record.rows {
+            //    //    let val = String::from_utf8_lossy(row.borrow());
+            //    //    println!("{val}");
+            //    //}
+            //}
 
             //match FileReader::new(&args[1]) {
             //    Some(mut reader) => {
