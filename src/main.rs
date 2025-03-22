@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use anyhow::{bail, Result};
 use codecrafters_sqlite::file_reader::FileReader;
 use codecrafters_sqlite::page::PageReader;
@@ -85,21 +87,32 @@ fn main() -> Result<()> {
             //println!("number of tables: {}", page.page_header.cell_count);
             //let cells = page.cells.len();
             //println!("number of cells {cells}");
-            for cell in page.cells {
-                if cell.record_size == 0 {
-                    continue;
-                }
 
-                print!(
-                    "{:?}",
-                    String::from_utf8_lossy(cell.record.rows.get(2).unwrap())
+            let mut tables = String::new();
+            for cell in page.cells {
+                //if cell.record_size == 0 {
+                //    continue;
+                //}
+
+                tables.insert_str(
+                    tables.len(),
+                    &String::from_utf8_lossy(cell.record.rows.get(2).unwrap()),
                 );
+
+                tables.push(' ');
+
+                //print!(
+                //    "{:?}",
+                //    String::from_utf8_lossy(cell.record.rows.get(2).unwrap())
+                //);
 
                 //for row in cell.record.rows {
                 //    let val = String::from_utf8_lossy(row.borrow());
                 //    println!("{val}");
                 //}
             }
+
+            println!("{:?}", tables.trim());
         }
 
         _ => bail!("Missing or invalid command passed: {}", command),
