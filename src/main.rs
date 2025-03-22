@@ -13,10 +13,10 @@ fn main() -> Result<()> {
 
     // Parse command and act accordingly
     let command = &args[2];
+    let path = &args[1];
     match command.as_str() {
         ".dbinfo" => {
             eprintln!("Logs from your program will appear here!");
-            let path = &args[1];
 
             let mut file_reader = FileReader::new(path).unwrap();
             let mut page_reader = PageReader::new(&mut file_reader, 1_u16);
@@ -68,6 +68,40 @@ fn main() -> Result<()> {
             //    _ => bail!("unable to open file {}", &args[1]),
             //}
         }
+        ".tables" => {
+            let mut file_reader = FileReader::new(path).unwrap();
+            let mut page_reader = PageReader::new(&mut file_reader, 1_u16);
+            //    .unwrap()
+            //    .read_bytes_from(100, 8)
+            //    .unwrap();
+            ////let mut a = PageReader::new(path).unwrap().read_page(1);
+            //let header = a.next_n(5).unwrap();
+            //let page_size = u16::from_be_bytes([header[0], header[1]]);
+            //println!("{:?}, {page_size}, {:?}, {:?}", a, header[0], header[1]);
+
+            //let mut page_reader = PageReader::new(&args[1]).unwrap();
+            let page = page_reader.read_page();
+
+            //println!("number of tables: {}", page.page_header.cell_count);
+            //let cells = page.cells.len();
+            //println!("number of cells {cells}");
+            for cell in page.cells {
+                if cell.record_size == 0 {
+                    continue;
+                }
+
+                print!(
+                    "{:?}",
+                    String::from_utf8_lossy(cell.record.rows.get(2).unwrap())
+                );
+
+                //for row in cell.record.rows {
+                //    let val = String::from_utf8_lossy(row.borrow());
+                //    println!("{val}");
+                //}
+            }
+        }
+
         _ => bail!("Missing or invalid command passed: {}", command),
     }
 

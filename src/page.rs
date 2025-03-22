@@ -1,6 +1,6 @@
 const PAGE_SIZE: u16 = 4096;
 
-use std::{borrow::BorrowMut, u64, usize};
+use std::{u64, usize};
 
 use crate::{
     file_reader::{BytesIterator, FileReader},
