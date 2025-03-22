@@ -66,9 +66,9 @@ pub struct PageReader {
 }
 
 impl PageReader {
-    pub fn new(file_reader: &mut FileReader, page_number: u16) -> Self {
+    pub fn new(file_reader: &mut FileReader, page_number: u16, page_size: u16) -> Self {
         let (page_start_offset, size) =
-            ((PAGE_SIZE * (page_number - 1)) as u64, PAGE_SIZE as usize);
+            ((page_size * (page_number - 1)) as u64, page_size as usize);
 
         let mut bytes_iterator = file_reader
             .read_bytes_from(page_start_offset, size)
