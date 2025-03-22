@@ -1,4 +1,5 @@
 use std::borrow::Borrow;
+use std::char;
 
 use anyhow::{bail, Result};
 use codecrafters_sqlite::file_reader::FileReader;
@@ -94,10 +95,14 @@ fn main() -> Result<()> {
                 //    continue;
                 //}
 
-                tables.insert_str(
-                    tables.len(),
-                    &String::from_utf8_lossy(cell.record.rows.get(2).unwrap()),
-                );
+                for ch in cell.record.rows.get(2).unwrap() {
+                    tables.push(char::from_u32(*ch as u32).unwrap());
+                }
+
+                //tables.insert_str(
+                //    tables.len(),
+                //    &String::from_utf8_lossy(cell.record.rows.get(2).unwrap()),
+                //);
 
                 tables.push(' ');
 
