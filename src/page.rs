@@ -11,25 +11,26 @@ use crate::{
 #[derive(Debug)]
 pub enum SerialType {
     NULL,
+    INTEGER,
     BLOB,
     TEXT,
 }
 
 #[derive(Debug)]
 pub struct SerialTypeInfo {
-    read_size: u64,
-    serial_type: SerialType,
+    pub read_size: u64,
+    pub serial_type: SerialType,
 }
 
 #[derive(Debug)]
 pub struct RecordHeader {
     header_size: u8,
-    serial_types: Box<[SerialTypeInfo]>,
+    pub serial_types: Box<[SerialTypeInfo]>,
 }
 
 #[derive(Debug)]
 pub struct Record {
-    record_header: RecordHeader,
+    pub record_header: RecordHeader,
     pub rows: Box<[Box<[u8]>]>,
 }
 
@@ -209,10 +210,15 @@ impl PageReader {
     }
 
     fn get_column_serial_type_info(&self, val: u64) -> SerialTypeInfo {
-        if val < 12 {
+        if val == 0 {
             SerialTypeInfo {
                 read_size: 0,
                 serial_type: SerialType::NULL,
+            }
+        } else if val < 9 {
+            SerialTypeInfo {
+                read_size: val,
+                serial_type: SerialType::INTEGER,
             }
         } else if val % 2 == 0 {
             SerialTypeInfo {
