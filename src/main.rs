@@ -44,7 +44,11 @@ fn main() -> Result<()> {
         _ => {
             let mut sql = command.split(' ');
             match sql.next().unwrap() {
-                "SELECT" => {
+                "SELECT" | "select" => {
+                    if sql.next().unwrap().to_lowercase() != "count(*)" {
+                        bail!("not implemented");
+                    }
+
                     let table_name = sql.next_back().unwrap();
                     let cell = root_page
                         .cells
