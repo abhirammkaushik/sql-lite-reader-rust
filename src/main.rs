@@ -3,6 +3,7 @@ use std::char;
 use anyhow::{bail, Result};
 use codecrafters_sqlite::file_reader::FileReader;
 use codecrafters_sqlite::page::PageReader;
+use codecrafters_sqlite::parser::{parse_sql, QueryType};
 
 fn main() -> Result<()> {
     // Parse arguments
@@ -30,42 +31,88 @@ fn main() -> Result<()> {
             println!("number of tables: {}", root_page.page_header.cell_count);
         }
         ".tables" => {
-            let mut tables = String::new();
-            for cell in root_page.cells {
-                for ch in cell.record.rows.get(2).unwrap() {
-                    tables.push(char::from_u32(*ch as u32).unwrap());
-                }
+            /* index | info
+                  0 | type
+                  1 | name
+                  2 | table_name
+                  3 | page where table data is stored
+                  4 | table creation sql
+            */
 
+            let mut tables = String::new();
+            let mut sqls = String::new();
+            for cell in root_page.cells {
+                let table = String::from_utf8_lossy(cell.record.rows.get(2).unwrap());
+
+                tables.push_str(&table);
                 tables.push(' ');
+
+                let sql = String::from_utf8_lossy(cell.record.rows.get(4).unwrap())
+                    .replace("\n", "")
+                    .replace("\t", "");
+                sqls.push_str(&sql);
             }
 
             println!("{:?}", tables.trim());
+            println!("{:?}", sqls);
         }
         _ => {
-            let mut sql = command.split(' ');
-            match sql.next().unwrap() {
-                "SELECT" | "select" => {
-                    if sql.next().unwrap().to_lowercase() != "count(*)" {
-                        bail!("not implemented");
-                    }
-
-                    let table_name = sql.next_back().unwrap();
-                    let cell = root_page
+            //let mut sql = command.split(' ');
+            let query_details = parse_sql(command).expect("Unknown query type");
+            match query_details.qtype {
+                QueryType::SELECT => {
+                    let table_name = query_details.stmt.table_name;
+                    let cell_idx = root_page
                         .cells
                         .iter()
-                        .find(|cell| {
+                        .position(|cell| {
                             String::from_utf8_lossy(cell.record.rows.get(2).unwrap()) == table_name
                         })
                         .unwrap();
+                    let cell = &root_page.cells[cell_idx];
                     /* page where the table is stored */
                     let page_no_bytes = cell.record.rows.get(3).unwrap();
                     let page_no = u8::from_be_bytes([page_no_bytes[0]]);
-                    //println!("{} found in page: {}", table_name, page_no);
-                    let page_2 =
+
+                    let col_name = query_details.stmt.columns.first().unwrap();
+                    let page =
                         PageReader::new(&mut file_reader, page_no as u16, page_size).read_page();
-                    println!("{}", page_2.page_header.cell_count);
+                    if col_name == "*" {
+                        //println!("{} found in page: {}", table_name, page_no);
+                        println!("{}", page.page_header.cell_count);
+                    } else {
+                        let create_table_sql = String::from_utf8_lossy(&cell.record.rows[4])
+                            .replace("\n", "")
+                            .replace("\t", "");
+                        println!("{}", create_table_sql);
+
+                        let create_query_details = parse_sql(&create_table_sql).unwrap();
+                        match create_query_details.qtype {
+                            QueryType::CREATE => {
+                                let col_pos = create_query_details
+                                    .stmt
+                                    .columns
+                                    .iter()
+                                    .position(|col| col == col_name);
+                                match col_pos {
+                                    Some(col_pos) => {
+                                        page.cells.iter().for_each(|cell| {
+                                            println!(
+                                                "{}",
+                                                String::from_utf8_lossy(&cell.record.rows[col_pos])
+                                            )
+                                        });
+                                    }
+                                    None => bail!("invalid column name for table {}", table_name),
+                                }
+                            }
+                            _ => {
+                                bail!("Invalid data read");
+                            }
+                        }
+                    }
                 }
-                _ => {
+                QueryType::CREATE => {
                     bail!("Missing or invalid command passed: {}", command)
                 }
             }
@@ -74,3 +121,29 @@ fn main() -> Result<()> {
 
     Ok(())
 }
+
+//match sql.next().unwrap() {
+//    "SELECT" | "select" => {
+//        if sql.next().unwrap().to_lowercase() != "count(*)" {
+//            bail!("not implemented");
+//        }
+//
+//let table_name = sql.next_back().unwrap();
+//let cell = root_page
+//    .cells
+//    .iter()
+//    .find(|cell| {
+//        String::from_utf8_lossy(cell.record.rows.get(2).unwrap()) == table_name
+//    })
+//    .unwrap();
+// page where the table is stored
+//let page_no_bytes = cell.record.rows.get(3).unwrap();
+//let page_no = u8::from_be_bytes([page_no_bytes[0]]);
+////println!("{} found in page: {}", table_name, page_no);
+//let page_2 = PageReader::new(&mut file_reader, page_no as u16, page_size).read_page();
+//println!("{}", page_2.page_header.cell_count);
+//    }
+//    _ => {
+//        bail!("Missing or invalid command passed: {}", command)
+//    }
+//}
