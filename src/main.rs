@@ -121,29 +121,3 @@ fn main() -> Result<()> {
 
     Ok(())
 }
-
-//match sql.next().unwrap() {
-//    "SELECT" | "select" => {
-//        if sql.next().unwrap().to_lowercase() != "count(*)" {
-//            bail!("not implemented");
-//        }
-//
-//let table_name = sql.next_back().unwrap();
-//let cell = root_page
-//    .cells
-//    .iter()
-//    .find(|cell| {
-//        String::from_utf8_lossy(cell.record.rows.get(2).unwrap()) == table_name
-//    })
-//    .unwrap();
-// page where the table is stored
-//let page_no_bytes = cell.record.rows.get(3).unwrap();
-//let page_no = u8::from_be_bytes([page_no_bytes[0]]);
-////println!("{} found in page: {}", table_name, page_no);
-//let page_2 = PageReader::new(&mut file_reader, page_no as u16, page_size).read_page();
-//println!("{}", page_2.page_header.cell_count);
-//    }
-//    _ => {
-//        bail!("Missing or invalid command passed: {}", command)
-//    }
-//}
