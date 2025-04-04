@@ -3,7 +3,7 @@ use regex::{Regex, RegexSet};
 
 static REGEXES: Lazy<Vec<Regex>> = Lazy::new(|| {
     let regexes = &[
-        r"((CREATE|create) (TABLE|table) (?P<table_name>[A-Za-z_]+)\((?P<column_name>.*)\))",
+        r"((CREATE|create) (TABLE|table) (?P<table_name>[A-Za-z_]+)[\s]?\((?P<column_name>.*)\))",
         r"((SELECT|select) ((?<count>(COUNT|count)\()?((?<column_name>[A-Za-z_]+)|(?<star>\*)))\)? (FROM|from) (?P<table_name>[A-Za-z_]+))",
     ];
 

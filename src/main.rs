@@ -84,7 +84,7 @@ fn main() -> Result<()> {
                         let create_table_sql = String::from_utf8_lossy(&cell.record.rows[4])
                             .replace("\n", "")
                             .replace("\t", "");
-                        println!("{}", create_table_sql);
+                        // println!("{}", create_table_sql);
 
                         let create_query_details = parse_sql(&create_table_sql).unwrap();
                         match create_query_details.qtype {
