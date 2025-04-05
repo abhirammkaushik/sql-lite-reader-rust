@@ -30,6 +30,7 @@ pub fn parse_sql(sql: &str) -> Option<QueryDetails> {
                 .split(",")
                 .map(|col_expr| {
                     col_expr
+                        .trim()
                         .split(" ")
                         .collect::<Vec<_>>()
                         .first()
