@@ -1,10 +1,12 @@
+use std::str::FromStr;
+
 use once_cell::sync::Lazy;
 use regex::{Regex, RegexSet};
 
 static REGEXES: Lazy<Vec<Regex>> = Lazy::new(|| {
     let regexes = &[
-        r"((CREATE|create) (TABLE|table) (?P<table_name>[A-Za-z_]+)[\s]?\((?P<column_name>.*)\))",
-        r"((SELECT|select) ((?<count>(COUNT|count)\()?((?<column_name>[A-Za-z_]+)|(?<star>\*)))\)? (FROM|from) (?P<table_name>[A-Za-z_]+))",
+        r"((CREATE|create) (TABLE|table) (?P<table_name>[A-Za-z_]+)[\s]?\((?P<column_names>.*)\))",
+        r"((SELECT|select)((?<count>(COUNT|count)\()?((?<column_names>[A-Za-z_,]+)|(?<star>\*)))\)?(FROM|from)(?P<table_name>[A-Za-z_]+))",
     ];
 
     regexes
@@ -24,7 +26,7 @@ pub fn parse_sql(sql: &str) -> Option<QueryDetails> {
         [0] => {
             let regex = &REGEXES[0];
             let caps = regex.captures(sql).unwrap();
-            let cols: Vec<_> = caps["column_name"]
+            let cols: Vec<_> = caps["column_names"]
                 .split(",")
                 .map(|col_expr| {
                     col_expr
@@ -49,7 +51,10 @@ pub fn parse_sql(sql: &str) -> Option<QueryDetails> {
             let caps = regex.captures(sql).unwrap();
             let columns = match caps.name("star") {
                 Some(val) => vec![val.as_str().to_string()], // '*'
-                None => vec![caps["column_name"].to_string()],
+                None => caps["column_names"]
+                    .split(",")
+                    .map(|name| String::from_str(name).unwrap())
+                    .collect::<Vec<_>>(),
             };
             Some(QueryDetails {
                 qtype: QueryType::SELECT,

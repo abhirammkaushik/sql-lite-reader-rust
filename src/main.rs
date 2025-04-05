@@ -1,5 +1,3 @@
-use std::char;
-
 use anyhow::{bail, Result};
 use codecrafters_sqlite::file_reader::FileReader;
 use codecrafters_sqlite::page::PageReader;
@@ -58,7 +56,8 @@ fn main() -> Result<()> {
         }
         _ => {
             //let mut sql = command.split(' ');
-            let query_details = parse_sql(command).expect("Unknown query type");
+            let command = command.replace(" ", "");
+            let query_details = parse_sql(&command).expect("Unknown query type");
             match query_details.qtype {
                 QueryType::SELECT => {
                     let table_name = query_details.stmt.table_name;
@@ -68,16 +67,17 @@ fn main() -> Result<()> {
                         .position(|cell| {
                             String::from_utf8_lossy(cell.record.rows.get(2).unwrap()) == table_name
                         })
-                        .unwrap();
+                        .expect("table not found");
                     let cell = &root_page.cells[cell_idx];
                     /* page where the table is stored */
                     let page_no_bytes = cell.record.rows.get(3).unwrap();
                     let page_no = u8::from_be_bytes([page_no_bytes[0]]);
 
-                    let col_name = query_details.stmt.columns.first().unwrap();
+                    let col_names = query_details.stmt.columns;
+                    //println!("{:?}", col_names);
                     let page =
                         PageReader::new(&mut file_reader, page_no as u16, page_size).read_page();
-                    if col_name == "*" {
+                    if col_names.len() == 1 && col_names.first().unwrap() == "*" {
                         //println!("{} found in page: {}", table_name, page_no);
                         println!("{}", page.page_header.cell_count);
                     } else {
@@ -87,24 +87,36 @@ fn main() -> Result<()> {
                         // println!("{}", create_table_sql);
 
                         let create_query_details = parse_sql(&create_table_sql).unwrap();
+                        //println!("{:?}", create_query_details.stmt.columns);
                         match create_query_details.qtype {
                             QueryType::CREATE => {
-                                let col_pos = create_query_details
+                                let mut col_positions = Vec::new();
+                                create_query_details
                                     .stmt
                                     .columns
                                     .iter()
-                                    .position(|col| col == col_name);
-                                match col_pos {
-                                    Some(col_pos) => {
-                                        page.cells.iter().for_each(|cell| {
-                                            println!(
-                                                "{}",
-                                                String::from_utf8_lossy(&cell.record.rows[col_pos])
-                                            )
-                                        });
-                                    }
-                                    None => bail!("invalid column name for table {}", table_name),
+                                    .enumerate()
+                                    .for_each(|(idx, col)| {
+                                        if col_names.contains(col) {
+                                            col_positions.push(idx)
+                                        }
+                                    });
+                                // .position(|col| col_names.contains(col));
+                                if col_positions.len() != col_names.len() {
+                                    bail!(
+                                        "some of the columns {:?} not found in table '{}'.",
+                                        col_names,
+                                        table_name
+                                    )
                                 }
+                                page.cells.iter().for_each(|cell| {
+                                    let mut row = Vec::new();
+                                    col_positions.iter().for_each(|&pos| {
+                                        row.push(String::from_utf8_lossy(&cell.record.rows[pos]))
+                                    });
+
+                                    println!("{}", row.join("|"))
+                                });
                             }
                             _ => {
                                 bail!("Invalid data read");
