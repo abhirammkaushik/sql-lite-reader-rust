@@ -91,24 +91,16 @@ fn main() -> Result<()> {
                         match create_query_details.qtype {
                             QueryType::CREATE => {
                                 let mut col_positions = Vec::new();
-                                create_query_details
-                                    .stmt
-                                    .columns
-                                    .iter()
-                                    .enumerate()
-                                    .for_each(|(idx, col)| {
-                                        if col_names.contains(col) {
-                                            col_positions.push(idx)
-                                        }
-                                    });
-
-                                if col_positions.len() != col_names.len() {
-                                    bail!(
-                                        "some of the columns {:?} not found in table '{}'.",
-                                        col_names,
-                                        table_name
-                                    )
-                                }
+                                col_names.iter().for_each(|col| {
+                                    col_positions.push(
+                                        create_query_details
+                                            .stmt
+                                            .columns
+                                            .iter()
+                                            .position(|name| name == col)
+                                            .expect("column {col} not found"),
+                                    );
+                                });
 
                                 page.cells.iter().for_each(|cell| {
                                     let mut row = Vec::new();
