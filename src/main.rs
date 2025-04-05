@@ -84,10 +84,10 @@ fn main() -> Result<()> {
                         let create_table_sql = String::from_utf8_lossy(&cell.record.rows[4])
                             .replace("\n", "")
                             .replace("\t", "");
-                        // println!("{}", create_table_sql);
+                        println!("{}", create_table_sql);
 
                         let create_query_details = parse_sql(&create_table_sql).unwrap();
-                        //println!("{:?}", create_query_details.stmt.columns);
+                        println!("{:?}", create_query_details.stmt.columns);
                         match create_query_details.qtype {
                             QueryType::CREATE => {
                                 let mut col_positions = Vec::new();
@@ -101,7 +101,7 @@ fn main() -> Result<()> {
                                             col_positions.push(idx)
                                         }
                                     });
-                                // .position(|col| col_names.contains(col));
+
                                 if col_positions.len() != col_names.len() {
                                     bail!(
                                         "some of the columns {:?} not found in table '{}'.",
@@ -109,6 +109,7 @@ fn main() -> Result<()> {
                                         table_name
                                     )
                                 }
+
                                 page.cells.iter().for_each(|cell| {
                                     let mut row = Vec::new();
                                     col_positions.iter().for_each(|&pos| {
