@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::{bail, Result};
 use codecrafters_sqlite::file_reader::FileReader;
 use codecrafters_sqlite::page::PageReader;
@@ -55,9 +57,7 @@ fn main() -> Result<()> {
             println!("{:?}", sqls);
         }
         _ => {
-            //let mut sql = command.split(' ');
-            let command = command.replace(" ", "");
-            let query_details = parse_sql(&command).expect("Unknown query type");
+            let query_details = parse_sql(command, HashMap::new()).expect("Unknown query type");
             match query_details.qtype {
                 QueryType::SELECT => {
                     let table_name = query_details.stmt.table_name;
@@ -78,16 +78,16 @@ fn main() -> Result<()> {
                     let page =
                         PageReader::new(&mut file_reader, page_no as u16, page_size).read_page();
                     if col_names.len() == 1 && col_names.first().unwrap() == "*" {
-                        //println!("{} found in page: {}", table_name, page_no);
                         println!("{}", page.page_header.cell_count);
                     } else {
-                        let create_table_sql = String::from_utf8_lossy(&cell.record.rows[4])
-                            .replace("\n", "")
-                            .replace("\t", "");
+                        let create_replacement_map = HashMap::from([("\n", ""), ("\t", "")]);
+                        let create_table_sql = String::from_utf8_lossy(&cell.record.rows[4]);
                         //println!("{}", create_table_sql);
 
-                        let create_query_details = parse_sql(&create_table_sql).unwrap();
+                        let create_query_details =
+                            parse_sql(&create_table_sql, create_replacement_map).unwrap();
                         //println!("{:?}", create_query_details.stmt.columns);
+
                         match create_query_details.qtype {
                             QueryType::CREATE => {
                                 let mut col_positions = Vec::new();
@@ -102,13 +102,36 @@ fn main() -> Result<()> {
                                     );
                                 });
 
-                                page.cells.iter().for_each(|cell| {
-                                    let mut row = Vec::new();
-                                    col_positions.iter().for_each(|&pos| {
-                                        row.push(String::from_utf8_lossy(&cell.record.rows[pos]))
-                                    });
+                                let filter = query_details.stmt.filter;
+                                //println!("{:?}", filter);
+                                let (filter_col_pos, filter_value) = if filter.is_some() {
+                                    let filter = filter.clone().unwrap();
+                                    (
+                                        create_query_details
+                                            .stmt
+                                            .columns
+                                            .iter()
+                                            .position(|name| *name == filter.0)
+                                            .unwrap()
+                                            as isize,
+                                        filter.1,
+                                    )
+                                } else {
+                                    (-1, String::new())
+                                };
 
-                                    println!("{}", row.join("|"))
+                                page.cells.iter().for_each(|cell| {
+                                    if should_use(filter_col_pos, &filter_value, &cell.record.rows)
+                                    {
+                                        let mut row = Vec::new();
+                                        col_positions.iter().for_each(|&pos| {
+                                            row.push(String::from_utf8_lossy(
+                                                &cell.record.rows[pos],
+                                            ))
+                                        });
+
+                                        println!("{}", row.join("|"))
+                                    }
                                 });
                             }
                             _ => {
@@ -125,4 +148,12 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn should_use(filter_col_pos: isize, filter_value: &str, rows: &[Box<[u8]>]) -> bool {
+    if filter_col_pos == -1 {
+        true
+    } else {
+        String::from_utf8_lossy(&rows[filter_col_pos as usize]) == filter_value
+    }
 }

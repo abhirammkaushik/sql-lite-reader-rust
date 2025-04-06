@@ -1,26 +1,20 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use once_cell::sync::Lazy;
 use regex::{Regex, RegexSet};
 
-static REGEXES: Lazy<Vec<Regex>> = Lazy::new(|| {
-    let regexes = &[
-        r"((CREATE|create) (TABLE|table) (?P<table_name>[A-Za-z_]+)[\s]?\((?P<column_names>.*)\))",
-        r"((SELECT|select)((?<count>(COUNT|count)\()?((?<column_names>[A-Za-z_,]+)|(?<star>\*)))\)?(FROM|from)(?P<table_name>[A-Za-z_]+))",
-    ];
+pub fn parse_sql(sql: &str, replacement_map: HashMap<&str, &str>) -> Option<QueryDetails> {
+    let mut sql_sanitized = String::from_str(sql).unwrap();
 
-    regexes
+    replacement_map
         .iter()
-        .map(|regex_str| Regex::new(regex_str).unwrap())
-        .collect()
-});
+        .for_each(|(&from, &to)| sql_sanitized = sql_sanitized.replace(from, to));
 
-static QUERY_SET: Lazy<RegexSet> = Lazy::new(|| {
-    let regexes: Vec<&str> = REGEXES.iter().map(|rd| rd.as_str()).collect();
-    RegexSet::new(&regexes).unwrap()
-});
+    parse_sql_sanitized(&sql_sanitized)
+}
 
-pub fn parse_sql(sql: &str) -> Option<QueryDetails> {
+fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
     let matches: Vec<_> = QUERY_SET.matches(sql).into_iter().collect();
     match matches.as_slice() {
         [0] => {
@@ -44,6 +38,7 @@ pub fn parse_sql(sql: &str) -> Option<QueryDetails> {
                 stmt: Statement {
                     table_name: caps["table_name"].to_string(),
                     columns: cols,
+                    filter: None,
                 },
             })
         }
@@ -57,15 +52,27 @@ pub fn parse_sql(sql: &str) -> Option<QueryDetails> {
                     .map(|name| String::from_str(name).unwrap())
                     .collect::<Vec<_>>(),
             };
+
+            let filter = caps.name("filters").map(|_expr| {
+                (
+                    caps["filter_column"].to_string(),
+                    caps["filter_value"].to_string(),
+                )
+            });
+
             Some(QueryDetails {
                 qtype: QueryType::SELECT,
                 stmt: Statement {
                     table_name: caps["table_name"].to_string(),
                     columns,
+                    filter,
                 },
             })
         }
-        [] => None,
+        [] => {
+            println!("no mathes");
+            None
+        }
         _ => {
             print!("multiple matches");
             None
@@ -73,14 +80,34 @@ pub fn parse_sql(sql: &str) -> Option<QueryDetails> {
     }
 }
 
+static REGEXES: Lazy<Vec<Regex>> = Lazy::new(|| {
+    let regexes = &[
+        r"((CREATE|create) (TABLE|table) (?P<table_name>[A-Za-z_]+)[\s]?\((?P<column_names>.*)\))",
+        r"((SELECT|select) ((?<count>(COUNT|count)\()?((?<column_names>[ A-Za-z_,]+)|(?<star>\*)))\)? (FROM|from) (?P<table_name>[A-Za-z_]+))( (WHERE|where) (?<filters>(?<filter_column>[A-Za-z_]+) = '(?<filter_value>[\w ]+)'))?",
+    ];
+
+    regexes
+        .iter()
+        .map(|regex_str| Regex::new(regex_str).unwrap())
+        .collect()
+});
+
+static QUERY_SET: Lazy<RegexSet> = Lazy::new(|| {
+    let regexes: Vec<&str> = REGEXES.iter().map(|rd| rd.as_str()).collect();
+    RegexSet::new(&regexes).unwrap()
+});
+
 pub struct QueryDetails {
     pub qtype: QueryType,
     pub stmt: Statement,
 }
+
 pub struct Statement {
     pub table_name: String,
     pub columns: Vec<String>,
+    pub filter: Option<(String, String)>,
 }
+
 pub enum QueryType {
     CREATE,
     SELECT,
