@@ -49,7 +49,7 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
                 Some(val) => vec![val.as_str().to_string()], // '*'
                 None => caps["column_names"]
                     .split(",")
-                    .map(|name| String::from_str(name).unwrap())
+                    .map(|name| String::from_str(name.trim()).unwrap())
                     .collect::<Vec<_>>(),
             };
 
