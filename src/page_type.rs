@@ -1,17 +1,17 @@
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum PageType {
-    IntIdx,
-    IntLeaf,
-    TblIdx,
+    IdxInt,
+    IdxLeaf,
+    TblInt,
     TblLeaf,
     Invalid,
 }
 
 pub fn get_page_type(page_type: &u8) -> PageType {
     match page_type {
-        2 => PageType::IntIdx,
-        5 => PageType::IntLeaf,
-        10 => PageType::TblIdx,
+        2 => PageType::IdxInt,
+        5 => PageType::IdxLeaf,
+        10 => PageType::TblInt,
         13 => PageType::TblLeaf,
         _ => PageType::Invalid,
     }

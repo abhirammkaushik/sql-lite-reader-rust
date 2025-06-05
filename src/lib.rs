@@ -3,3 +3,5 @@ pub mod page;
 pub mod page_type;
 pub mod parser;
 pub mod varint;
+
+pub mod cell;

@@ -1,9 +1,10 @@
-use std::collections::HashMap;
-
 use anyhow::{bail, Result};
+use codecrafters_sqlite::cell::{Cell, TableLeafCell};
 use codecrafters_sqlite::file_reader::FileReader;
 use codecrafters_sqlite::page::PageReader;
 use codecrafters_sqlite::parser::{parse_sql, QueryType};
+use std::collections::HashMap;
+use std::ops::Deref;
 
 fn main() -> Result<()> {
     // Parse arguments
@@ -41,7 +42,13 @@ fn main() -> Result<()> {
 
             let mut tables = String::new();
             let mut sqls = String::new();
+
             for cell in root_page.cells {
+                let cell = cell
+                    .deref()
+                    .as_any()
+                    .downcast_ref::<TableLeafCell>()
+                    .unwrap();
                 let table = String::from_utf8_lossy(cell.record.rows.get(2).unwrap());
 
                 tables.push_str(&table);
@@ -65,10 +72,20 @@ fn main() -> Result<()> {
                         .cells
                         .iter()
                         .position(|cell| {
+                            let cell = cell
+                                .deref()
+                                .as_any()
+                                .downcast_ref::<TableLeafCell>()
+                                .unwrap();
                             String::from_utf8_lossy(cell.record.rows.get(2).unwrap()) == table_name
                         })
                         .expect("table not found");
                     let cell = &root_page.cells[cell_idx];
+                    let cell = cell
+                        .deref()
+                        .as_any()
+                        .downcast_ref::<TableLeafCell>()
+                        .unwrap();
                     /* page where the table is stored */
                     let page_no_bytes = cell.record.rows.get(3).unwrap();
                     let page_no = u8::from_be_bytes([page_no_bytes[0]]);
@@ -121,6 +138,11 @@ fn main() -> Result<()> {
                                 };
 
                                 page.cells.iter().for_each(|cell| {
+                                    let cell = cell
+                                        .deref()
+                                        .as_any()
+                                        .downcast_ref::<TableLeafCell>()
+                                        .unwrap();
                                     if should_use(filter_col_pos, &filter_value, &cell.record.rows)
                                     {
                                         let mut row = Vec::new();

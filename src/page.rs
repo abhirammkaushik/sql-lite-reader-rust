@@ -2,44 +2,12 @@ const PAGE_SIZE: u16 = 4096;
 
 use std::{u64, usize};
 
+use crate::cell::{Cell, Record, RecordHeader, SerialType, SerialTypeInfo, TableIntCell, TableLeafCell};
 use crate::{
     file_reader::{BytesIterator, FileReader},
     page_type::{get_page_type, PageType},
     varint,
 };
-
-#[derive(Debug)]
-pub enum SerialType {
-    NULL,
-    INTEGER,
-    BLOB,
-    TEXT,
-}
-
-#[derive(Debug)]
-pub struct SerialTypeInfo {
-    pub read_size: u64,
-    pub serial_type: SerialType,
-}
-
-#[derive(Debug)]
-pub struct RecordHeader {
-    header_size: u8,
-    pub serial_types: Box<[SerialTypeInfo]>,
-}
-
-#[derive(Debug)]
-pub struct Record {
-    pub record_header: RecordHeader,
-    pub rows: Box<[Box<[u8]>]>,
-}
-
-#[derive(Debug)]
-pub struct Cell {
-    pub record_size: u64,
-    row_id: u16,
-    pub record: Record,
-}
 
 #[derive(Debug)]
 pub struct PageHeader {
@@ -48,22 +16,23 @@ pub struct PageHeader {
     pub cell_count: u16,
     cell_content_offset: u16,
     fragmented_bytes: u8,
+    right_pointer: Option<u32>,
 }
 
 pub struct Page {
     pub page_header: PageHeader,
-    pub cells: Box<[Cell]>,
+    pub cells: Box<[Box<dyn Cell>]>,
 }
 
 impl Page {
-    pub fn new(page_header: PageHeader, cells: Box<[Cell]>) -> Self {
+    pub fn new(page_header: PageHeader, cells: Box<[Box<dyn Cell>]>) -> Self {
         Self { page_header, cells }
     }
 }
 
 pub struct PageReader {
     bytes_iterator: BytesIterator,
-    page_start_offset: u64,
+    page_start_offset: u64, // start of page on for file
 }
 
 impl PageReader {
@@ -85,46 +54,69 @@ impl PageReader {
     }
 
     pub fn read_page(&mut self) -> Page {
-        let page_header_size: usize = 8;
-        let offset = self.page_start_offset;
+        let (page_header_size, page_type) = self.get_page_header_size();
 
-        let page_header = self.get_page_header(page_header_size);
+        let page_header = self.get_page_header(page_header_size, &page_type);
         //println!("{:?}", page_header);
 
-        let cell_pointer_start = self
-            .get_cell_pointer_start(&page_header.page_type, page_header_size.try_into().unwrap())
-            .unwrap();
-
-        //println!("cell pointer start: {cell_pointer_start}");
-        let cells = self
-            .read_cells(page_header.cell_count, cell_pointer_start as u64 + offset)
-            .unwrap();
-        Page { page_header, cells }
+        if page_type == PageType::TblLeaf {
+            let cells = self
+                .read_table_leaf_cells(page_header.cell_count)
+                .unwrap();
+            Page { page_header, cells }
+        } else if page_type == PageType::TblInt {
+            let cells = self
+                .read_table_int_cell()
+                .unwrap();
+            Page { page_header, cells }
+        } else {
+            panic!("invalid page type");
+        }
     }
 
-    fn get_page_header(&mut self, page_header_size: usize) -> PageHeader {
-        let page_header = self.bytes_iterator.next_n(page_header_size).unwrap();
+    fn get_page_header_size(&mut self) -> (usize, PageType) {
+        let bytes = self.bytes_iterator.next_n(1_usize).unwrap();
+        let page_type = get_page_type(&bytes[0]);
+        if page_type == PageType::IdxInt || page_type == PageType::IdxLeaf {
+            (12, page_type)
+        } else {
+            (8, page_type)
+        }
+    }
+
+    fn get_page_header(&mut self, page_header_size: usize, page_type: &PageType) -> PageHeader {
+        let page_header = self.bytes_iterator.next_n(page_header_size - 1).unwrap();
 
         PageHeader {
-            page_type: get_page_type(&page_header[0]),
+            page_type: *page_type,
             first_free_block: u16::from_be_bytes([page_header[1], page_header[2]]),
             cell_count: u16::from_be_bytes([page_header[3], page_header[4]]),
             cell_content_offset: u16::from_be_bytes([page_header[5], page_header[6]]),
             fragmented_bytes: u8::from_be_bytes([page_header[7]]),
+            right_pointer: None,
         }
     }
 
     fn get_cell_pointer_start(&self, page_type: &PageType, page_header_size: u8) -> Option<u8> {
         match page_type {
             PageType::TblLeaf => Some(page_header_size),
-            PageType::TblIdx => Some(page_header_size),
-            PageType::IntLeaf => Some(page_header_size + 4),
-            PageType::IntIdx => Some(page_header_size + 4),
+            PageType::TblInt => Some(page_header_size),
+            PageType::IdxLeaf => Some(page_header_size + 4),
+            PageType::IdxInt => Some(page_header_size + 4),
             PageType::Invalid => None,
         }
     }
 
-    fn read_cells(&mut self, cell_count: u16, cell_pointer_start: u64) -> Option<Box<[Cell]>> {
+    fn read_table_int_cell(&mut self) -> Option<Box<[Box<dyn Cell>]>> {
+        let bytes = self.bytes_iterator.next_n(4_usize).unwrap();
+        let left_child_page_id = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let (row_id, _) = varint::decode(&mut self.bytes_iterator);
+        let mut cells: Vec<Box<dyn Cell>> = Vec::new();
+        cells.push(Box::new(TableIntCell { row_id: row_id as u16, left_child_page_id }));
+        Some(cells.into())
+    }
+
+    fn read_table_leaf_cells(&mut self, cell_count: u16) -> Option<Box<[Box<dyn Cell>]>> {
         // println!("cell pointer start with offset: {cell_pointer_start}");
 
         let mut cell_offsets_iterator = self
@@ -132,13 +124,11 @@ impl PageReader {
             .next_n_as_iter(cell_count as usize * 2_usize)
             .unwrap();
         //println!("{:?}", cell_offsets_iterator);
-        let mut cells: Vec<Cell> = Vec::new();
-        let mut cell_idx: u16 = 0;
+        let mut cells: Vec<Box<dyn Cell>> = Vec::new();
         while cell_offsets_iterator.has_next() {
             let cell_offset = cell_offsets_iterator.next_n(2).unwrap();
             let cell_offset = u16::from_be_bytes([cell_offset[0], cell_offset[1]]);
             let mut offset: u64 = cell_offset as u64;
-            cell_idx += 1;
             //println!("cell offset for cell {cell_idx} is {offset}");
 
             let (record_size, bytes_read) =
@@ -200,11 +190,11 @@ impl PageReader {
 
             //println!("{:?}", record);
 
-            cells.push(Cell {
+            cells.push(Box::new(TableLeafCell {
                 record_size,
                 row_id: row_id as u16,
                 record,
-            });
+            }));
         }
         Some(cells.into())
     }
