@@ -83,7 +83,7 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
 static REGEXES: Lazy<Vec<Regex>> = Lazy::new(|| {
     let regexes = &[
         r"((CREATE|create) (TABLE|table) (?P<table_name>[A-Za-z_]+)[\s]?\((?P<column_names>.*)\))",
-        r"((SELECT|select) ((?<count>(COUNT|count)\()?((?<column_names>[ A-Za-z_,]+)|(?<star>\*)))\)? (FROM|from) (?P<table_name>[A-Za-z_]+))( (WHERE|where) (?<filters>(?<filter_column>[A-Za-z_]+) = '(?<filter_value>[\w ]+)'))?",
+        r"((SELECT|select) ((?<count>(COUNT|count)\()?((?<column_names>[ A-Za-z_,]+)|(?<star>\*)))\)? (FROM|from) (?P<table_name>[A-Za-z_]+))( (WHERE|where) (?<filters>(?<filter_column>[A-Za-z_]+)='(?<filter_value>[\w ]+)'))?",
     ];
 
     regexes

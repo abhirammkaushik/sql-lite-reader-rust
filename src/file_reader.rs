@@ -88,9 +88,6 @@ impl BytesIterator {
 
     #[inline]
     pub fn peek_back_n(&self, n: &usize) -> Option<Box<[u8]>> {
-        //if *n == 0usize || self.offset + *n > self.bytes.len() {
-        //    return None;
-        //}
         if !self.within_bounds(n) {
             return None;
         }

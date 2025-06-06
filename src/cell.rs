@@ -1,4 +1,6 @@
 use core::any::Any;
+use std::ops::Deref;
+
 #[derive(Debug)]
 pub enum SerialType {
     NULL,
@@ -52,4 +54,9 @@ impl Cell for TableIntCell {
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+#[inline]
+pub fn downcast<T: Any + Cell>(x: &Box<dyn Cell>) -> &T {
+    x.deref().as_any().downcast_ref::<T>().unwrap()
 }
