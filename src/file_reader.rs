@@ -94,6 +94,7 @@ impl BytesIterator {
 
         let start = self.offset - n;
         let end = self.offset;
+        // println!("{start} {end} {} {n}", self.offset);
         Some(self.bytes[start..end].to_vec().into_boxed_slice())
     }
 

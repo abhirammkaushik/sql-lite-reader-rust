@@ -45,6 +45,7 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
         [1] => {
             let regex = &REGEXES[1];
             let caps = regex.captures(sql).unwrap();
+            let count = caps.name("count").is_some();
             let columns = match caps.name("star") {
                 Some(val) => vec![val.as_str().to_string()], // '*'
                 None => caps["column_names"]
@@ -61,7 +62,7 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
             });
 
             Some(QueryDetails {
-                qtype: QueryType::SELECT,
+                qtype: QueryType::SELECT(count),
                 stmt: Statement {
                     table_name: caps["table_name"].to_string(),
                     columns,
@@ -83,7 +84,7 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
 static REGEXES: Lazy<Vec<Regex>> = Lazy::new(|| {
     let regexes = &[
         r"((CREATE|create) (TABLE|table) (?P<table_name>[A-Za-z_]+)[\s]?\((?P<column_names>.*)\))",
-        r"((SELECT|select) ((?<count>(COUNT|count)\()?((?<column_names>[ A-Za-z_,]+)|(?<star>\*)))\)? (FROM|from) (?P<table_name>[A-Za-z_]+))( (WHERE|where) (?<filters>(?<filter_column>[A-Za-z_]+)='(?<filter_value>[\w ]+)'))?",
+        r"((SELECT|select) ((?<count>(COUNT|count)\()?((?<column_names>[ A-Za-z_,]+)|(?<star>\*)))\)? (FROM|from) (?P<table_name>[A-Za-z_]+))( (WHERE|where) (?<filters>(?<filter_column>[A-Za-z_]+)(\s)?=(\s)?'(?<filter_value>[\w\-() ]+)'))?",
     ];
 
     regexes
@@ -97,18 +98,21 @@ static QUERY_SET: Lazy<RegexSet> = Lazy::new(|| {
     RegexSet::new(&regexes).unwrap()
 });
 
+#[derive(Debug)]
 pub struct QueryDetails {
     pub qtype: QueryType,
     pub stmt: Statement,
 }
 
+#[derive(Debug)]
 pub struct Statement {
     pub table_name: String,
     pub columns: Vec<String>,
     pub filter: Option<(String, String)>,
 }
 
+#[derive(Debug)]
 pub enum QueryType {
     CREATE,
-    SELECT,
+    SELECT(bool),
 }
