@@ -37,7 +37,7 @@ pub struct RecordHeader {
 #[derive(Debug, Clone)]
 pub struct Record {
     pub record_header: RecordHeader,
-    pub rows: Box<[Box<[u8]>]>,
+    pub rows: Vec<String>,
 }
 
 pub trait CellClone {

@@ -139,7 +139,7 @@ impl PageReader {
                 serial_types: serial_types.into_boxed_slice(),
             };
 
-            let mut rows: Vec<Box<[u8]>> = Vec::new();
+            let mut rows: Vec<String> = Vec::new();
             let mut record_body_iterator = self
                 .bytes_iterator
                 .next_n_as_iter(record_body_size as usize)
@@ -147,19 +147,21 @@ impl PageReader {
             for serial_type in record_header.serial_types.iter() {
                 let read_size = get_read_size(serial_type);
                 if read_size == 0 {
-                    rows.push(Box::new([]));
+                    rows.push(String::new());
                     continue;
                 }
                 let row = record_body_iterator
                     .next_n(read_size as usize)
                     .unwrap();
 
+                let row = decode(&serial_type, &row);
+
                 rows.push(row);
             }
 
             let record = Record {
                 record_header,
-                rows: rows.into(),
+                rows,
             };
 
             //println!("{:?}", record);
@@ -217,5 +219,32 @@ impl PageReaderBuilder {
     }
     pub fn new_reader(&mut self, page_number: u16) -> PageReader {
         PageReader::new(&mut self.file_reader, page_number, self.page_size)
+    }
+}
+
+
+fn decode(serial_type: &SerialType, row: &Box<[u8]>) -> String {
+    match serial_type {
+        SerialType::INTEGER(size) => {
+            row_u64_converter(row, *size).to_string()
+        }
+        SerialType::TEXT(_size) | SerialType::BLOB(_size) => {
+            String::from_utf8_lossy(row).to_string()
+        }
+        SerialType::FLOAT64(_size) => {
+            f64::from_be_bytes([row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]]).to_string()
+        }
+        _ => String::new()
+    }
+}
+fn row_u64_converter(row: &Box<[u8]>, n: u64) -> u64 {
+    match n {
+        1 => u8::from_be_bytes([row[0]]) as u64,
+        2 => u16::from_be_bytes([row[0], row[1]]) as u64,
+        3 => u32::from_be_bytes([0_u8, row[0], row[1], row[2]]) as u64,
+        4 => u32::from_be_bytes([row[0], row[1], row[2], row[3]]) as u64,
+        6 => u64::from_be_bytes([0_u8, 0_u8, row[0], row[1], row[2], row[3], row[4], row[5]]),
+        8 => u64::from_be_bytes([row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]]),
+        _ => { 0_u64 }
     }
 }

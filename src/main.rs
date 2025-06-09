@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use codecrafters_sqlite::file_reader::FileReader;
-use codecrafters_sqlite::page::{downcast, Page, RecordHeader, SerialType, TableIntCell, TableLeafCell};
+use codecrafters_sqlite::page::{downcast, Page, TableIntCell, TableLeafCell};
 use codecrafters_sqlite::page_reader::PageReaderBuilder;
 use codecrafters_sqlite::page_type::PageType;
 use codecrafters_sqlite::parser::{parse_sql, QueryDetails, QueryType};
@@ -73,12 +73,12 @@ fn main() -> Result<()> {
 
             for cell in root_page.cells {
                 let cell = downcast::<TableLeafCell>(&cell);
-                let table = String::from_utf8_lossy(cell.record.rows.get(2).unwrap());
+                let table = cell.record.rows.get(2).unwrap();
 
                 tables.push_str(&table);
                 tables.push(' ');
 
-                let sql = String::from_utf8_lossy(cell.record.rows.get(4).unwrap())
+                let sql = cell.record.rows.get(4).unwrap()
                     .replace("\n", "")
                     .replace("\t", "");
                 sqls.push_str(&sql);
@@ -144,8 +144,7 @@ fn fetch_table_first_page(table_name: &str, parent_page: &Page, builder: &mut Pa
     let cell = &parent_page.cells[cell_idx];
     let cell = downcast::<TableLeafCell>(cell);
     /* page where the table is stored */
-    let page_no_bytes = cell.record.rows.get(3).unwrap();
-    let page_no = u8::from_be_bytes([page_no_bytes[0]]);
+    let page_no: u8 = cell.record.rows.get(3).unwrap().parse().unwrap();
     (page_no as u32, builder.new_reader(page_no as u16).read_page())
 }
 
@@ -165,8 +164,7 @@ fn fetch_table_leaf_cell_idx(table_name: &str, page: &Page) -> usize {
         .cells
         .iter()
         .position(|cell| {
-            let cell = downcast::<TableLeafCell>(cell);
-            String::from_utf8_lossy(cell.record.rows.get(2).unwrap()) == table_name
+            downcast::<TableLeafCell>(cell).record.rows.get(2).unwrap() == table_name
         })
         .expect("table not found");
     cell_idx
@@ -176,7 +174,7 @@ fn get_create_table_query_details(table_name: &str, parent_page: &Page) -> Query
     let create_replacement_map = HashMap::from([("\n", ""), ("\t", ""), ("\"", "")]);
     let cell_idx = fetch_table_leaf_cell_idx(table_name, parent_page);
     let cell = downcast::<TableLeafCell>(&parent_page.cells[cell_idx]);
-    let sql = String::from_utf8_lossy(&cell.record.rows[4]).to_string();
+    let sql = &cell.record.rows[4];
     // println!(">>> {}", sql);
     parse_sql(&sql, create_replacement_map).unwrap()
 }
@@ -232,7 +230,7 @@ fn fetch_table_data(col_positions: &Vec<usize>, page_num_and_page: &(u32, Page),
             let cell = downcast::<TableLeafCell>(cell);
             // println!(">>> {:?}", cell);
             // println!(">>> {:?}", page_no);
-            match filter_or_get(&filter, cell, col_positions) {
+            match filter_rows(&filter, cell, col_positions) {
                 Some(row) => {
                     rows.push(row);
                 }
@@ -246,43 +244,22 @@ fn fetch_table_data(col_positions: &Vec<usize>, page_num_and_page: &(u32, Page),
     }
 }
 
-fn filter_or_get(filter: &Filter, cell: &TableLeafCell, col_positions: &Vec<usize>) -> Option<String> {
+fn filter_rows(filter: &Filter, cell: &TableLeafCell, col_positions: &Vec<usize>) -> Option<String> {
     let rows = &cell.record.rows;
-    let record_header = &cell.record.record_header;
     let mut row_str = Vec::new();
 
-    let decode = |pos: usize, row| {
-        match record_header.serial_types[pos] {
-            SerialType::INTEGER(size) => {
-                row_u64_converter(row, size).to_string()
-            }
-            SerialType::TEXT(_size) | SerialType::BLOB(_size) => {
-                String::from_utf8_lossy(row).to_string()
-            }
-            SerialType::FLOAT64(_size) => {
-                f64::from_be_bytes([row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]]).to_string()
-            }
-            _ =>
-                String::new()
-        }
-    };
-
     if col_positions.len() > rows.len() {
-        rows.iter().enumerate().for_each(|(idx, row)| row_str.push(decode(idx, row)));
+        rows.iter().for_each(|row| row_str.push(row.clone()));
         return Some(row_str.join("|"));
     }
 
-    if filter.filter_col_pos == -1 || decode_match(filter, rows, record_header) {
+    if filter.filter_col_pos == -1 || decode_match(filter, rows) {
         col_positions.iter().for_each(|&pos| {
-            // println!("{:?}", &rows);
-            // println!("{:?}", record_header);
-            let row = &rows[pos];
-            // println!("{:?}", row);
-            // println!("{:?}", record_header.serial_types[pos]);
             let val = if pos == 0 {
                 cell.row_id.to_string()
             } else {
-                decode(pos, row)
+                let row = &rows[pos];
+                row.clone()
             };
             row_str.push(val);
         });
@@ -341,29 +318,11 @@ fn fetch_all_leaves(first_page: Page, builder: &mut PageReaderBuilder, first_pag
     pages
 }
 
-fn decode_match(filter: &Filter, rows: &[Box<[u8]>], record_header: &RecordHeader) -> bool {
+fn decode_match(filter: &Filter, rows: &Vec<String>) -> bool {
     if rows.len() <= filter.filter_col_pos as usize {
         return false;
     }
 
-    let decoder = &record_header.serial_types[filter.filter_col_pos as usize];
-    let val = match decoder {
-        SerialType::INTEGER(size) => row_u64_converter(&rows[filter.filter_col_pos as usize], *size).to_string(),
-        SerialType::TEXT(_) => String::from_utf8_lossy(&rows[filter.filter_col_pos as usize]).to_string(),
-        _ => String::new()
-    };
     // println!("{:?} {:?}", val, filter.filter_value);
-    val == filter.filter_value
-}
-
-fn row_u64_converter(row: &Box<[u8]>, n: u64) -> u64 {
-    match n {
-        1 => u8::from_be_bytes([row[0]]) as u64,
-        2 => u16::from_be_bytes([row[0], row[1]]) as u64,
-        3 => u32::from_be_bytes([0_u8, row[0], row[1], row[2]]) as u64,
-        4 => u32::from_be_bytes([row[0], row[1], row[2], row[3]]) as u64,
-        6 => u64::from_be_bytes([0_u8, 0_u8, row[0], row[1], row[2], row[3], row[4], row[5]]),
-        8 => u64::from_be_bytes([row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]]),
-        _ => { 0_u64 }
-    }
+    rows[filter.filter_col_pos as usize] == filter.filter_value
 }
