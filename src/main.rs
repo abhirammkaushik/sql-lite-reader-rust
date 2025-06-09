@@ -101,7 +101,7 @@ fn main() -> Result<()> {
                     // println!("Found {:?}", page_num_and_page.iter().map(|(num, _)| num).collect::<Vec<_>>());
 
                     if select_col_names.len() == 1 && select_col_names.first().unwrap() == "*" && count {
-                        println!("Found {:?}", page_num_and_page.iter().map(|(_, page)| page.page_header.cell_count as u64).sum::<u64>());
+                        println!("{:?}", page_num_and_page.iter().map(|(_, page)| page.page_header.cell_count as u64).sum::<u64>());
                     } else {
                         let create_query_details =
                             get_create_table_query_details(table_name.as_str(), &root_page);
