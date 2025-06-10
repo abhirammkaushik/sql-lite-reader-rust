@@ -46,6 +46,8 @@ pub trait CellClone {
 
 pub trait Cell: CellClone + Display + Debug + 'static {
     fn as_any(&self) -> &dyn Any; /* to help with downcast */
+
+    fn record(&self) -> Option<Record>;
 }
 
 impl<T: Cell + Clone> CellClone for T {
@@ -68,6 +70,19 @@ pub struct TableIntCell {
     pub left_child_page_no: u32,
 }
 
+#[derive(Debug, Clone)]
+pub struct IdxLeafCell {
+    pub record_size: u64,
+    pub record: Record,
+}
+
+#[derive(Debug, Clone)]
+pub struct IdxIntCell {
+    pub left_child_page_no: u32,
+    pub record_size: u64,
+    pub record: Record,
+}
+
 impl Display for TableLeafCell {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "TableLeafCell {{ record_size: {}, row_id: {}, record: {:?} }}", self.record_size, self.row_id, self.record)
@@ -77,6 +92,10 @@ impl Display for TableLeafCell {
 impl Cell for TableLeafCell {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn record(&self) -> Option<Record> {
+        Some(self.record.clone())
     }
 }
 
@@ -90,11 +109,47 @@ impl Cell for TableIntCell {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn record(&self) -> Option<Record> {
+        None
+    }
+}
+
+impl Display for IdxLeafCell {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IdxLeafCell {{ record_size: {}, record: {:?} }}", self.record_size, self.record)
+    }
+}
+
+impl Cell for IdxLeafCell {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn record(&self) -> Option<Record> {
+        Some(self.record.clone())
+    }
+}
+
+impl Display for IdxIntCell {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "IdxIntCell {{ left_child_page_no: {}, record_size: {}, record: {:?} }}", self.left_child_page_no, self.record_size, self.record)
+    }
+}
+
+impl Cell for IdxIntCell {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn record(&self) -> Option<Record> {
+        None
+    }
 }
 
 #[inline]
-pub fn downcast<T: Any + Cell>(x: &Box<dyn Cell>) -> &T {
-    x.deref().as_any().downcast_ref::<T>().unwrap()
+pub fn downcast<T: Any + Cell>(x: &Box<dyn Cell>) -> Option<&T> {
+    x.deref().as_any().downcast_ref::<T>()
 }
 #[derive(Debug, Clone)]
 pub struct PageHeader {

@@ -16,9 +16,25 @@ pub fn parse_sql(sql: &str, replacement_map: HashMap<&str, &str>) -> Option<Quer
 
 fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
     let matches: Vec<_> = QUERY_SET.matches(sql).into_iter().collect();
+    println!("matches: {:?} {sql}", matches);
     match matches.as_slice() {
         [0] => {
             let regex = &REGEXES[0];
+            let caps = regex.captures(sql).unwrap();
+            let index_name = caps["index_name"].to_string();
+            let table_name = caps["table_name"].to_string();
+            let column_name = caps["column_name"].to_string();
+            Some(QueryDetails {
+                qtype: QueryType::INDEX(index_name),
+                stmt: Statement {
+                    table_name,
+                    columns: vec![column_name],
+                    filter: None,
+                },
+            })
+        }
+        [1] => {
+            let regex = &REGEXES[1];
             let caps = regex.captures(sql).unwrap();
             let cols: Vec<_> = caps["column_names"]
                 .split(",")
@@ -42,8 +58,8 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
                 },
             })
         }
-        [1] => {
-            let regex = &REGEXES[1];
+        [2] => {
+            let regex = &REGEXES[2];
             let caps = regex.captures(sql).unwrap();
             let count = caps.name("count").is_some();
             let columns = match caps.name("star") {
@@ -71,7 +87,7 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
             })
         }
         [] => {
-            println!("no mathes");
+            println!("no matches");
             None
         }
         _ => {
@@ -83,6 +99,7 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
 
 static REGEXES: Lazy<Vec<Regex>> = Lazy::new(|| {
     let regexes = &[
+        r"((CREATE|create) (INDEX|index) (?P<index_name>[A-Za-z_]+)on (?P<table_name>[A-Za-z_]+)? \((?P<column_name>.*)\))",
         r"((CREATE|create) (TABLE|table) (?P<table_name>[A-Za-z_]+)[\s]?\((?P<column_names>.*)\))",
         r"((SELECT|select) ((?<count>(COUNT|count)\()?((?<column_names>[ A-Za-z_,]+)|(?<star>\*)))\)? (FROM|from) (?P<table_name>[A-Za-z_]+))( (WHERE|where) (?<filters>(?<filter_column>[A-Za-z_]+)(\s)?=(\s)?'(?<filter_value>[\w\-() ]+)'))?",
     ];
@@ -115,4 +132,5 @@ pub struct Statement {
 pub enum QueryType {
     CREATE,
     SELECT(bool),
+    INDEX(String),
 }
