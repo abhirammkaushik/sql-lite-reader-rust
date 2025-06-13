@@ -33,7 +33,7 @@ pub fn perform_index_scan(
 ) {
     let (_page_no, root_index_page) = fetch_table_first_page(root_index_page_cell, builder);
     // println!("first index page no {:?}", _page_no);
-    // println!("{:?}", root_index_page);
+    println!("{:?}", root_index_page);
     let (_page_no, root_table_page) = fetch_table_first_page(root_leaf_page_cell, builder);
     // println!("first table page no {:?}", _page_no);
     // println!("{:?}", root_table_page);
