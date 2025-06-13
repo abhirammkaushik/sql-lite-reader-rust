@@ -29,7 +29,7 @@ fn main() -> Result<()> {
     // let mut free_list_page_iter = file_reader.read_bytes_from(36, 8)?;
     let mut builder = PageReaderBuilder::new(file_reader, page_size);
 
-    let mut db_root_page_reader = builder.new_reader(1_u16);
+    let mut db_root_page_reader = builder.new_reader(1_u32);
     // println!("Reading root page...");
     let db_root_page = db_root_page_reader.read_page();
     let create_replacement_map: HashMap<&str, &str> =

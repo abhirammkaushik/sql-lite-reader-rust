@@ -33,7 +33,7 @@ pub fn perform_index_scan(
 ) {
     let (_page_no, root_index_page) = fetch_table_first_page(root_index_page_cell, builder);
     // println!("first index page no {:?}", _page_no);
-    println!("{:?}", root_index_page);
+    // println!("{:?}", root_index_page);
     let (_page_no, root_table_page) = fetch_table_first_page(root_leaf_page_cell, builder);
     // println!("first table page no {:?}", _page_no);
     // println!("{:?}", root_table_page);
@@ -103,7 +103,7 @@ fn fetch_indexed_rows(
             IndexedSearchResult::LeftPage(cell) => cell.left_child_page_no().unwrap(),
             IndexedSearchResult::RightPage => page.page_header.right_pointer.unwrap(),
         };
-        page = builder.new_reader(page_to_read as u16).read_page();
+        page = builder.new_reader(page_to_read).read_page();
     }
 
     if record_ids.is_empty() {
@@ -132,7 +132,7 @@ fn fetch_indexed_rows(
             record_ids.push(row_id);
         }
         page_to_read += 1;
-        page = builder.new_reader(page_to_read as u16).read_page();
+        page = builder.new_reader(page_to_read).read_page();
         cell_idx = 0;
     }
 
@@ -168,7 +168,7 @@ fn fetch_rows_with_id(
                 }
                 IndexedSearchResult::RightPage => page.page_header.right_pointer.unwrap(),
             };
-            page = Rc::from(builder.new_reader(page_to_read as u16).read_page());
+            page = Rc::from(builder.new_reader(page_to_read).read_page());
         }
 
         let cell = match bin_search_payload::<TableLeafCell>(
@@ -206,7 +206,7 @@ fn fetch_all_leaves(
         if let Some(right_page_no) = int_page.page_header.right_pointer {
             if !visited.contains(&right_page_no) {
                 visited.insert(right_page_no);
-                let right_page = builder.new_reader(right_page_no as u16).read_page();
+                let right_page = builder.new_reader(right_page_no).read_page();
                 if right_page.page_header.page_type == PageType::TblLeaf {
                     pages.push((right_page_no, right_page));
                 } else if right_page.page_header.page_type == PageType::TblInt {
@@ -218,7 +218,7 @@ fn fetch_all_leaves(
             let cell = downcast::<TableIntCell>(cell).unwrap();
             let left_page_no = cell.left_child_page_no;
             if !visited.contains(&left_page_no) {
-                let mut reader = builder.new_reader(left_page_no as u16);
+                let mut reader = builder.new_reader(left_page_no);
                 if reader.page_meta_data.page_type == PageType::TblLeaf
                     || reader.page_meta_data.page_type == PageType::TblInt
                 {
@@ -341,7 +341,7 @@ fn decode_match(filter: &Filter, rows: &[String]) -> bool {
 pub fn fetch_table_first_page(cell: &dyn Cell, builder: &mut PageReaderBuilder) -> (u32, Page) {
     /* page where the table is stored */
     let page_no: u32 = cell.record().unwrap().rows.get(3).unwrap().parse().unwrap();
-    (page_no, builder.new_reader(page_no as u16).read_page())
+    (page_no, builder.new_reader(page_no).read_page())
 }
 
 fn get_column_position(

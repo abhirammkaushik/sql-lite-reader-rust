@@ -12,7 +12,7 @@ pub struct PageReader {
 }
 
 impl PageReader {
-    pub fn new(file_reader: &mut FileReader, page_number: u16, page_size: u16) -> Self {
+    pub fn new(file_reader: &mut FileReader, page_number: u32, page_size: u16) -> Self {
         let (page_start_offset, size) = (
             page_size as u64 * (page_number as u64 - 1),
             page_size as usize,
@@ -264,7 +264,7 @@ impl PageReaderBuilder {
             page_size,
         }
     }
-    pub fn new_reader(&mut self, page_number: u16) -> PageReader {
+    pub fn new_reader(&mut self, page_number: u32) -> PageReader {
         PageReader::new(&mut self.file_reader, page_number, self.page_size)
     }
 }
