@@ -32,12 +32,12 @@ pub fn perform_index_scan(
     filter: &Filter,
 ) {
     let (_page_no, root_index_page) = fetch_table_first_page(root_index_page_cell, builder);
-    // println!("first index page no {:?}", _page_no);
+    println!("first index page no {:?}", _page_no);
     let (_page_no, root_table_page) = fetch_table_first_page(root_leaf_page_cell, builder);
-    // println!("first table page no {:?}", _page_no);
+    println!("first table page no {:?}", _page_no);
 
     let record_ids = fetch_indexed_rows(root_index_page, builder, filter.filter_value.clone());
-    // println!("{:?}", record_ids);
+    println!("{:?}", record_ids);
     fetch_rows_with_id(
         root_table_page,
         record_ids,
