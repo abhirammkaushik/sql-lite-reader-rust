@@ -6,7 +6,6 @@ use crate::page::{
 };
 use crate::page_type::PageType;
 use crate::{page, varint};
-
 pub struct PageReader {
     bytes_iterator: BytesIterator,
     pub page_meta_data: PageMetaData,
@@ -87,7 +86,7 @@ impl PageReader {
             let left_child_page_id = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
             let (row_id, _) = varint::decode(&mut self.bytes_iterator);
             cells.push(Box::new(TableIntCell {
-                row_id: row_id as u16,
+                row_id: row_id as i64,
                 left_child_page_no: left_child_page_id,
             }));
         }
@@ -110,14 +109,14 @@ impl PageReader {
 
             let (record_size, _) = varint::decode(self.bytes_iterator.jump_to(cell_offset));
 
-            let (row_id, _bytes_read) = varint::decode(&mut self.bytes_iterator);
+            let (row_id, _) = varint::decode(&mut self.bytes_iterator);
             let record = self.read_record();
 
             //println!("{:?}", record);
 
             cells.push(Box::new(TableLeafCell {
                 record_size,
-                row_id: row_id as u16,
+                row_id: row_id as i64,
                 record,
             }));
         }
@@ -134,13 +133,13 @@ impl PageReader {
             let cell_offset = cell_offsets_iterator.next_n(2).unwrap();
             let cell_offset: usize = u16::from_be_bytes([cell_offset[0], cell_offset[1]]).into();
 
-            let (record_size, _) = varint::decode(self.bytes_iterator.jump_to(cell_offset));
-            let bytes = self.bytes_iterator.next_n(4).unwrap();
-            let left_child_page_id = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            let bytes = self.bytes_iterator.jump_to(cell_offset).next_n(4).unwrap();
+            let left_child_page_no = u32::from_be_bytes(bytes[0..=3].try_into().unwrap());
+            let (record_size, _) = varint::decode(&mut self.bytes_iterator);
             let record = self.read_record();
             cells.push(Box::new(IdxIntCell {
                 record_size,
-                left_child_page_no: left_child_page_id,
+                left_child_page_no,
                 record,
             }))
         }
@@ -206,9 +205,10 @@ impl PageReader {
                 rows.push(String::new());
                 continue;
             }
-            let row = record_body_iterator.next_n(read_size as usize).unwrap();
-
-            let row = decode(serial_type, &row);
+            let row = decode(
+                serial_type,
+                &record_body_iterator.next_n(read_size as usize).unwrap(),
+            );
 
             rows.push(row);
         }

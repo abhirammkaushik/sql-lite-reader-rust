@@ -1,14 +1,13 @@
 use crate::{
     file_reader::BytesIterator,
-    page_type::{get_page_type, PageType}
-    ,
+    page_type::{get_page_type, PageType},
 };
 use std::fmt::Display;
-use std::ops::Deref;
 use std::usize;
 
 use core::any::Any;
 use std::fmt::{Debug, Formatter};
+use std::ops::Deref;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SerialType {
@@ -47,7 +46,17 @@ pub trait CellClone {
 pub trait Cell: CellClone + Display + Debug + 'static {
     fn as_any(&self) -> &dyn Any; /* to help with downcast */
 
-    fn record(&self) -> Option<Record>;
+    fn record(&self) -> Option<Record> {
+        None
+    }
+
+    fn left_child_page_no(&self) -> Option<u32> {
+        None
+    }
+
+    fn row_id(&self) -> Option<i64> {
+        None
+    }
 }
 
 impl<T: Cell + Clone> CellClone for T {
@@ -56,17 +65,16 @@ impl<T: Cell + Clone> CellClone for T {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct TableLeafCell {
     pub record_size: u64,
-    pub row_id: u16,
+    pub row_id: i64,
     pub record: Record,
 }
 
 #[derive(Debug, Clone)]
 pub struct TableIntCell {
-    pub row_id: u16,
+    pub row_id: i64,
     pub left_child_page_no: u32,
 }
 
@@ -85,7 +93,11 @@ pub struct IdxIntCell {
 
 impl Display for TableLeafCell {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TableLeafCell {{ record_size: {}, row_id: {}, record: {:?} }}", self.record_size, self.row_id, self.record)
+        write!(
+            f,
+            "TableLeafCell {{ record_size: {}, row_id: {}, record: {:?} }}",
+            self.record_size, self.row_id, self.record
+        )
     }
 }
 
@@ -97,11 +109,19 @@ impl Cell for TableLeafCell {
     fn record(&self) -> Option<Record> {
         Some(self.record.clone())
     }
+
+    fn row_id(&self) -> Option<i64> {
+        Some(self.row_id)
+    }
 }
 
 impl Display for TableIntCell {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TableIntCell {{ row_id: {}, left_child_page_no: {} }}", self.row_id, self.left_child_page_no)
+        write!(
+            f,
+            "TableIntCell {{ row_id: {}, left_child_page_no: {} }}",
+            self.row_id, self.left_child_page_no
+        )
     }
 }
 
@@ -110,14 +130,22 @@ impl Cell for TableIntCell {
         self
     }
 
-    fn record(&self) -> Option<Record> {
-        None
+    fn left_child_page_no(&self) -> Option<u32> {
+        Some(self.left_child_page_no)
+    }
+
+    fn row_id(&self) -> Option<i64> {
+        Some(self.row_id)
     }
 }
 
 impl Display for IdxLeafCell {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "IdxLeafCell {{ record_size: {}, record: {:?} }}", self.record_size, self.record)
+        write!(
+            f,
+            "IdxLeafCell {{ record_size: {}, record: {:?} }}",
+            self.record_size, self.record
+        )
     }
 }
 
@@ -133,7 +161,11 @@ impl Cell for IdxLeafCell {
 
 impl Display for IdxIntCell {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "IdxIntCell {{ left_child_page_no: {}, record_size: {}, record: {:?} }}", self.left_child_page_no, self.record_size, self.record)
+        write!(
+            f,
+            "IdxIntCell {{ left_child_page_no: {}, record_size: {}, record: {:?} }}",
+            self.left_child_page_no, self.record_size, self.record
+        )
     }
 }
 
@@ -143,7 +175,11 @@ impl Cell for IdxIntCell {
     }
 
     fn record(&self) -> Option<Record> {
-        None
+        Some(self.record.clone())
+    }
+
+    fn left_child_page_no(&self) -> Option<u32> {
+        Some(self.left_child_page_no)
     }
 }
 
@@ -192,13 +228,17 @@ impl Clone for Page {
 
 impl Display for Page {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Page {{ page_header: {:?}, cells: {:?} }}", self.page_header, self.cells)
+        write!(
+            f,
+            "Page {{ page_header: {:?}, cells: {:?} }}",
+            self.page_header, self.cells
+        )
     }
 }
 
 pub fn get_page_metadata(bytes_iterator: &mut BytesIterator) -> PageMetaData {
-    let bytes = bytes_iterator.next_n(1_usize).unwrap();
-    let page_type = get_page_type(&bytes[0]);
+    let byte = bytes_iterator.next().unwrap();
+    let page_type = get_page_type(&byte);
     if page_type == PageType::IdxInt || page_type == PageType::TblInt {
         PageMetaData {
             page_type,
@@ -221,9 +261,12 @@ pub fn get_read_size(serial_type: &SerialType) -> u64 {
         SerialType::FLOAT64(size) => *size,
         SerialType::BLOB(size) => *size,
         SerialType::TEXT(size) => *size,
-        _ => panic!(
-            "invalid serial type info {:?}",
-            serial_type
-        )
+        _ => panic!("invalid serial type info {:?}", serial_type),
     }
+}
+
+pub enum IndexedSearchResult {
+    ThisPage(Box<dyn Cell>, u32),
+    LeftPage(Box<dyn Cell>),
+    RightPage,
 }

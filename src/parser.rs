@@ -4,7 +4,7 @@ use std::str::FromStr;
 use once_cell::sync::Lazy;
 use regex::{Regex, RegexSet};
 
-pub fn parse_sql(sql: &str, replacement_map: HashMap<&str, &str>) -> Option<QueryDetails> {
+pub fn parse_sql(sql: &str, replacement_map: &HashMap<&str, &str>) -> Option<QueryDetails> {
     let mut sql_sanitized = String::from_str(sql).unwrap();
 
     replacement_map
@@ -16,7 +16,7 @@ pub fn parse_sql(sql: &str, replacement_map: HashMap<&str, &str>) -> Option<Quer
 
 fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
     let matches: Vec<_> = QUERY_SET.matches(sql).into_iter().collect();
-    println!("matches: {:?} {sql}", matches);
+    // println!("matches: {:?} {sql}", matches);
     match matches.as_slice() {
         [0] => {
             let regex = &REGEXES[0];
@@ -30,6 +30,7 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
                     table_name,
                     columns: vec![column_name],
                     filter: None,
+                    is_star: None,
                 },
             })
         }
@@ -55,6 +56,7 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
                     table_name: caps["table_name"].to_string(),
                     columns: cols,
                     filter: None,
+                    is_star: None,
                 },
             })
         }
@@ -62,29 +64,43 @@ fn parse_sql_sanitized(sql: &str) -> Option<QueryDetails> {
             let regex = &REGEXES[2];
             let caps = regex.captures(sql).unwrap();
             let count = caps.name("count").is_some();
-            let columns = match caps.name("star") {
-                Some(val) => vec![val.as_str().to_string()], // '*'
-                None => caps["column_names"]
-                    .split(",")
-                    .map(|name| String::from_str(name.trim()).unwrap())
-                    .collect::<Vec<_>>(),
-            };
-
             let filter = caps.name("filters").map(|_expr| {
                 (
                     caps["filter_column"].to_string(),
                     caps["filter_value"].to_string(),
                 )
             });
+            let table_name = caps["table_name"].to_string();
 
-            Some(QueryDetails {
-                qtype: QueryType::SELECT(count),
-                stmt: Statement {
-                    table_name: caps["table_name"].to_string(),
-                    columns,
-                    filter,
-                },
-            })
+            match caps.name("star") {
+                Some(val) => {
+                    let columns = vec![val.as_str().to_string()];
+                    Some(QueryDetails {
+                        qtype: QueryType::SELECT(count),
+                        stmt: Statement {
+                            table_name,
+                            columns,
+                            filter,
+                            is_star: Some(true),
+                        },
+                    })
+                }
+                None => {
+                    let columns = caps["column_names"]
+                        .split(",")
+                        .map(|name| String::from_str(name.trim()).unwrap())
+                        .collect::<Vec<_>>();
+                    Some(QueryDetails {
+                        qtype: QueryType::SELECT(count),
+                        stmt: Statement {
+                            table_name,
+                            columns,
+                            filter,
+                            is_star: Some(false),
+                        },
+                    })
+                }
+            }
         }
         [] => {
             println!("no matches");
@@ -126,6 +142,7 @@ pub struct Statement {
     pub table_name: String,
     pub columns: Vec<String>,
     pub filter: Option<(String, String)>,
+    pub is_star: Option<bool>,
 }
 
 #[derive(Debug)]
