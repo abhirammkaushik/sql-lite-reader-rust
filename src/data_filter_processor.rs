@@ -63,7 +63,7 @@ pub fn perform_full_table_scan(
     for page in &page_num_and_page {
         let unique_rows_sub = fetch_table_data(&col_positions, page, &filter).unwrap();
         unique_rows_sub.iter().for_each(|row| {
-            println!("{:?}", *row);
+            println!("{}", *row);
         });
     }
 }
@@ -188,7 +188,7 @@ fn fetch_rows_with_id(
             downcast::<TableLeafCell>(&cell).unwrap(),
             &col_positions,
         ) {
-            println!("{:?}", row);
+            println!("{}", row);
         }
     }
 }
