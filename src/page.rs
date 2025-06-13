@@ -3,7 +3,6 @@ use crate::{
     page_type::{get_page_type, PageType},
 };
 use std::fmt::Display;
-use std::usize;
 
 use core::any::Any;
 use std::fmt::{Debug, Formatter};
@@ -19,12 +18,6 @@ pub enum SerialType {
     BLOB(u64),
     TEXT(u64),
     RESERVED,
-}
-
-#[derive(Debug, Clone)]
-pub struct SerialTypeInfo {
-    pub read_size: u64,
-    pub serial_type: SerialType,
 }
 
 #[derive(Debug, Clone)]
@@ -265,7 +258,7 @@ pub fn get_read_size(serial_type: &SerialType) -> u64 {
     }
 }
 
-pub enum IndexedSearchResult {
+pub enum SearchResult {
     ThisPage(Box<dyn Cell>, u32),
     LeftPage(Box<dyn Cell>),
     RightPage,

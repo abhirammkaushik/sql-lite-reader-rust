@@ -1,13 +1,11 @@
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek};
-use std::os::unix::fs::FileExt;
 
 pub struct FileReader {
     reader: BufReader<File>,
     last_offset: u64,
 }
 
-// initailizer
 impl FileReader {
     pub fn new(path: &String) -> Option<Self> {
         let f = File::open(path).expect("cannot open file in path {path}");
@@ -18,28 +16,11 @@ impl FileReader {
     }
 
     pub fn read_bytes_from(&mut self, offset: u64, size: usize) -> io::Result<BytesIterator> {
-        //println!("{offset} {:?}", self.last_offset);
-        if offset > self.last_offset {
-            self.read_from_offset_raw(offset, size)
-        } else {
-            self.read_from_offset(offset, size)
-        }
-    }
-
-    fn read_from_offset_raw(&mut self, offset: u64, size: usize) -> io::Result<BytesIterator> {
-        let f_reader = self.reader.get_mut();
-        let mut bytes = vec![0_u8; size].into_boxed_slice();
-        match f_reader.read_exact_at(&mut bytes, offset) {
-            Ok(_) => {
-                self.last_offset = offset + size as u64;
-                io::Result::Ok(BytesIterator::new(bytes))
-            }
-            Err(err) => io::Result::Err(err),
-        }
+        self.read_from_offset(offset, size)
     }
 
     fn read_from_offset(&mut self, offset: u64, size: usize) -> io::Result<BytesIterator> {
-        let _ = self.reader.seek(std::io::SeekFrom::Start(offset));
+        let _ = self.reader.seek(io::SeekFrom::Start(offset));
         self.read_bytes(size)
     }
 
@@ -48,12 +29,9 @@ impl FileReader {
         match self.reader.read_exact(&mut bytes) {
             Ok(_) => {
                 self.last_offset += size as u64;
-                io::Result::Ok(BytesIterator::new(bytes))
+                Ok(BytesIterator::new(bytes))
             }
-            Err(err) => {
-                println!("{:?}", bytes);
-                io::Result::Err(err)
-            }
+            Err(err) => Err(err),
         }
     }
 }
@@ -94,7 +72,6 @@ impl BytesIterator {
 
         let start = self.offset - n;
         let end = self.offset;
-        // println!("{start} {end} {} {n}", self.offset);
         Some(self.bytes[start..end].to_vec().into_boxed_slice())
     }
 

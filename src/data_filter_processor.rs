@@ -1,5 +1,5 @@
 use crate::page::{
-    downcast, Cell, IdxIntCell, IdxLeafCell, IndexedSearchResult, Page, TableIntCell, TableLeafCell,
+    downcast, Cell, IdxIntCell, IdxLeafCell, Page, SearchResult, TableIntCell, TableLeafCell,
 };
 use crate::page_reader::PageReaderBuilder;
 use crate::page_type::PageType;
@@ -7,7 +7,7 @@ use crate::parser::QueryDetails;
 use anyhow::bail;
 use std::any::Any;
 use std::cmp::Ordering;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::ops::Deref;
 use std::rc::Rc;
 
@@ -33,12 +33,10 @@ pub fn perform_index_scan(
 ) {
     let (_page_no, root_index_page) = fetch_table_first_page(root_index_page_cell, builder);
     // println!("first index page no {:?}", _page_no);
-    // println!("{:?}", root_index_page);
     let (_page_no, root_table_page) = fetch_table_first_page(root_leaf_page_cell, builder);
     // println!("first table page no {:?}", _page_no);
-    // println!("{:?}", root_table_page);
 
-    let record_ids = fetch_indexed_rows(root_index_page, builder, filter.filter_value.clone());
+    let record_ids = fetch_indexed_rows(root_index_page, builder, &filter.filter_value);
     // println!("{:?}", record_ids);
     fetch_rows_with_id(
         root_table_page,
@@ -59,7 +57,7 @@ pub fn perform_full_table_scan(
 ) {
     let (page_no, page) = fetch_table_first_page(root_page_cell, builder);
     let page_num_and_page: Vec<(u32, Page)> = fetch_all_leaves_for_table(page, builder, page_no);
-    let col_positions = get_column_position(select_col_names, &table_query_details);
+    let col_positions = get_column_position(select_col_names, &table_query_details.stmt.columns);
     for page in &page_num_and_page {
         let unique_rows_sub = fetch_table_data(&col_positions, page, &filter).unwrap();
         unique_rows_sub.iter().for_each(|row| {
@@ -83,7 +81,7 @@ pub fn count_all_rows(root_leaf_page_cell: &dyn Cell, builder: &mut PageReaderBu
 fn fetch_indexed_rows(
     root_index_page: Page,
     builder: &mut PageReaderBuilder,
-    filter_value: FilterValue,
+    filter_value: &FilterValue,
 ) -> Vec<String> {
     let mut page = root_index_page;
     let mut page_to_read = 0u32;
@@ -92,42 +90,40 @@ fn fetch_indexed_rows(
         |cell: &dyn Cell| -> String { cell.record().unwrap().rows.first().unwrap().to_string() };
 
     while page.page_header.page_type == PageType::IdxInt {
-        // println!("{:?}", page);
-        // println!("{:?}", page_to_read);
         let cells = page.cells.deref();
-        let res = bin_search_payload::<IdxIntCell>(cells, &filter_value, &payload_extractor_fn);
+        let res = bin_search_payload::<IdxIntCell>(cells, filter_value, &payload_extractor_fn);
         page_to_read = match res {
-            IndexedSearchResult::ThisPage(cell, _) => {
+            SearchResult::ThisPage(cell, _) => {
                 let (_, row_id) = get_payload_id(&*cell);
                 record_ids.push(row_id);
                 cell.left_child_page_no().unwrap()
             }
-            IndexedSearchResult::LeftPage(cell) => cell.left_child_page_no().unwrap(),
-            IndexedSearchResult::RightPage => page.page_header.right_pointer.unwrap(),
+            SearchResult::LeftPage(cell) => cell.left_child_page_no().unwrap(),
+            SearchResult::RightPage => page.page_header.right_pointer.unwrap(),
         };
         page = builder.new_reader(page_to_read).read_page();
     }
 
     let cell_idx = match bin_search_payload::<IdxLeafCell>(
-        page.clone().cells.deref(),
-        &filter_value,
+        page.cells.deref(),
+        filter_value,
         &payload_extractor_fn,
     ) {
-        IndexedSearchResult::ThisPage(_, cell_idx) => cell_idx as i64,
-        IndexedSearchResult::LeftPage(_) | IndexedSearchResult::RightPage => -1,
+        SearchResult::ThisPage(_, cell_idx) => cell_idx as i64,
+        SearchResult::LeftPage(_) | SearchResult::RightPage => -1,
     };
 
     if cell_idx < 0 {
         return vec![];
     }
 
-    let mut cell_idx = cell_idx as u32;
+    let mut cell_idx = cell_idx as usize;
     'outer: loop {
         let cells = page.cells.deref();
-        let len = page.cells.deref().len() as u32;
-        for read_cell_idx in cell_idx..len {
-            let (payload, row_id) = get_payload_id(&*cells[read_cell_idx as usize]);
-            if filter_cmp(&filter_value, &payload) == Ordering::Less {
+        let len = page.cells.deref().len();
+        for cell in cells.iter().take(len).skip(cell_idx) {
+            let (payload, row_id) = get_payload_id(cell.deref());
+            if filter_cmp(filter_value, &payload) == Ordering::Less {
                 break 'outer;
             }
             record_ids.push(row_id);
@@ -148,8 +144,8 @@ fn fetch_rows_with_id(
     table_query_details: QueryDetails,
     filter: &Filter,
 ) {
-    let col_positions = get_column_position(select_col_names, &table_query_details);
-    let root_page_rc = Rc::new(root_table_page.clone());
+    let col_positions = get_column_position(select_col_names, &table_query_details.stmt.columns);
+    let root_page_rc = Rc::new(root_table_page.clone()); // use rc to avoid cloning the page repeatedly
     let payload_extractor_fn = |cell: &dyn Cell| -> String {
         cell.row_id()
             .expect("Failed to convert row_id to string")
@@ -164,10 +160,10 @@ fn fetch_rows_with_id(
             let res =
                 bin_search_payload::<TableIntCell>(cells, &filter_row_id, &payload_extractor_fn);
             page_to_read = match res {
-                IndexedSearchResult::ThisPage(cell, _) | IndexedSearchResult::LeftPage(cell) => {
+                SearchResult::ThisPage(cell, _) | SearchResult::LeftPage(cell) => {
                     cell.left_child_page_no().unwrap()
                 }
-                IndexedSearchResult::RightPage => page.page_header.right_pointer.unwrap(),
+                SearchResult::RightPage => page.page_header.right_pointer.unwrap(),
             };
             page = Rc::from(builder.new_reader(page_to_read).read_page());
         }
@@ -177,8 +173,8 @@ fn fetch_rows_with_id(
             &filter_row_id,
             &payload_extractor_fn,
         ) {
-            IndexedSearchResult::ThisPage(cell, _) => cell,
-            IndexedSearchResult::LeftPage(_) | IndexedSearchResult::RightPage => {
+            SearchResult::ThisPage(cell, _) => cell,
+            SearchResult::LeftPage(_) | SearchResult::RightPage => {
                 panic!("interior page contains entry but leaf doesn't. Page no: {page_to_read}")
             }
         };
@@ -199,39 +195,32 @@ fn fetch_all_leaves(
     first_page_no: u32,
 ) -> Vec<(u32, Page)> {
     let mut pages = vec![];
-    let mut stack = std::collections::VecDeque::new();
+    let mut stack = VecDeque::new();
     let mut visited = HashSet::new();
     stack.push_back((first_page_no, first_page));
+
+    let mut check_and_push = |page_no: u32, stack: &mut VecDeque<(u32, Page)>| {
+        let mut reader = builder.new_reader(page_no);
+        let page = reader.read_page();
+        if !visited.contains(&page_no) {
+            visited.insert(page_no);
+            if reader.page_meta_data.page_type == PageType::TblLeaf {
+                pages.push((page_no, page));
+            } else {
+                stack.push_back((page_no, page));
+            }
+        }
+    };
+
     while !stack.is_empty() {
         let (_, int_page) = stack.pop_front().unwrap();
         if let Some(right_page_no) = int_page.page_header.right_pointer {
-            if !visited.contains(&right_page_no) {
-                visited.insert(right_page_no);
-                let right_page = builder.new_reader(right_page_no).read_page();
-                if right_page.page_header.page_type == PageType::TblLeaf {
-                    pages.push((right_page_no, right_page));
-                } else if right_page.page_header.page_type == PageType::TblInt {
-                    stack.push_back((right_page_no, right_page));
-                }
-            }
+            check_and_push(right_page_no, &mut stack);
         }
         int_page.cells.iter().for_each(|cell| {
             let cell = downcast::<TableIntCell>(cell).unwrap();
             let left_page_no = cell.left_child_page_no;
-            if !visited.contains(&left_page_no) {
-                let mut reader = builder.new_reader(left_page_no);
-                if reader.page_meta_data.page_type == PageType::TblLeaf
-                    || reader.page_meta_data.page_type == PageType::TblInt
-                {
-                    let left_page = reader.read_page();
-                    if left_page.page_header.page_type == PageType::TblLeaf {
-                        pages.push((left_page_no, left_page));
-                    } else {
-                        stack.push_back((left_page_no, left_page));
-                    }
-                }
-                visited.insert(left_page_no);
-            }
+            check_and_push(left_page_no, &mut stack);
         });
     }
     pages
@@ -277,10 +266,10 @@ fn bin_search_payload<T: Any + Cell>(
     cells: &[Box<dyn Cell>],
     filter_value: &FilterValue,
     payload_extractor_fn: &dyn Fn(&dyn Cell) -> String,
-) -> IndexedSearchResult {
+) -> SearchResult {
     let len = cells.len() as u32;
     let (mut l, mut h) = (0u32, len);
-    let mut ret = IndexedSearchResult::RightPage;
+    let mut ret = SearchResult::RightPage;
     while l < h {
         let m = (l + h) / 2;
         let cell = downcast::<T>(&cells[m as usize]).unwrap();
@@ -293,11 +282,11 @@ fn bin_search_payload<T: Any + Cell>(
                 l = m + 1;
             }
             Ordering::Equal => {
-                ret = IndexedSearchResult::ThisPage(cell.clone_cell(), m);
+                ret = SearchResult::ThisPage(cell.clone_cell(), m);
                 h = m;
             }
             Ordering::Less => {
-                ret = IndexedSearchResult::LeftPage(cell.clone_cell());
+                ret = SearchResult::LeftPage(cell.clone_cell());
                 h = m;
             }
         }
@@ -339,27 +328,22 @@ fn decode_match(filter: &Filter, rows: &[String]) -> bool {
     filter_cmp(&filter.filter_value, &rows[filter.filter_col_pos as usize]) == Ordering::Equal
 }
 
-pub fn fetch_table_first_page(cell: &dyn Cell, builder: &mut PageReaderBuilder) -> (u32, Page) {
+fn fetch_table_first_page(cell: &dyn Cell, builder: &mut PageReaderBuilder) -> (u32, Page) {
     /* page where the table is stored */
     let page_no: u32 = cell.record().unwrap().rows.get(3).unwrap().parse().unwrap();
     (page_no, builder.new_reader(page_no).read_page())
 }
 
-fn get_column_position(
-    select_col_names: Vec<String>,
-    create_query_details: &QueryDetails,
-) -> Vec<usize> {
+fn get_column_position(select_col_names: Vec<String>, table_columns: &[String]) -> Vec<usize> {
     let mut col_positions = Vec::new();
     if select_col_names.first().unwrap() == "*" {
-        for pos in 0..create_query_details.stmt.columns.len() {
+        for pos in 0..table_columns.len() {
             col_positions.push(pos);
         }
     } else {
         select_col_names.iter().for_each(|col| {
             col_positions.push(
-                create_query_details
-                    .stmt
-                    .columns
+                table_columns
                     .iter()
                     .position(|name| name == col)
                     .expect("column {col} not found"),

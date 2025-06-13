@@ -21,14 +21,10 @@ impl PageReader {
         let mut bytes_iterator = file_reader
             .read_bytes_from(page_start_offset, size)
             .unwrap();
-        // let bytes = bytes_iterator.next_n(page_size as usize).unwrap();
-        // println!("{:?}", bytes);
-        // bytes_iterator.jump_to(0);
         if page_number == 1 {
             bytes_iterator.jump_to(100_usize);
         }
         let page_meta_data = page::get_page_metadata(&mut bytes_iterator);
-        // println!("reading page {page_number} at offset {page_start_offset} with size {size} {:?}", page_meta_data);
         PageReader {
             bytes_iterator,
             page_meta_data,
@@ -72,22 +68,16 @@ impl PageReader {
     }
 
     fn read_table_int_cell(&mut self, cell_count: u16) -> Option<Box<[Box<dyn Cell>]>> {
-        let mut cell_offsets_iterator = self
-            .bytes_iterator
-            .next_n_as_iter(cell_count as usize * 2_usize)
-            .unwrap();
+        let mut cell_offsets_iterator = self.new_cell_iterator(cell_count);
 
         let mut cells: Vec<Box<dyn Cell>> = Vec::new();
         while cell_offsets_iterator.has_next() {
-            let cell_offset = cell_offsets_iterator.next_n(2).unwrap();
-            let cell_offset: usize = u16::from_be_bytes([cell_offset[0], cell_offset[1]]).into();
-
-            let bytes = self.bytes_iterator.jump_to(cell_offset).next_n(4).unwrap();
-            let left_child_page_id = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            let cell_offset = self.read_cell_offset(&mut cell_offsets_iterator);
+            let left_child_page_no = self.read_left_child_page_no(&cell_offset);
             let (row_id, _) = varint::decode(&mut self.bytes_iterator);
             cells.push(Box::new(TableIntCell {
                 row_id: row_id as i64,
-                left_child_page_no: left_child_page_id,
+                left_child_page_no,
             }));
         }
 
@@ -95,24 +85,13 @@ impl PageReader {
     }
 
     fn read_table_leaf_cells(&mut self, cell_count: u16) -> Option<Box<[Box<dyn Cell>]>> {
-        let mut cell_offsets_iterator = self
-            .bytes_iterator
-            .next_n_as_iter(cell_count as usize * 2_usize)
-            .unwrap();
-        // println!("{:?}", cell_offsets_iterator);
+        let mut cell_offsets_iterator = self.new_cell_iterator(cell_count);
         let mut cells: Vec<Box<dyn Cell>> = Vec::new();
         while cell_offsets_iterator.has_next() {
-            let cell_offset = cell_offsets_iterator.next_n(2).unwrap();
-            let cell_offset: usize = u16::from_be_bytes([cell_offset[0], cell_offset[1]]).into();
-            /* the cell grows up from the end of the cell content area
-            while the contents of the cell grows down from the start of the cell content area */
-
+            let cell_offset = self.read_cell_offset(&mut cell_offsets_iterator);
             let (record_size, _) = varint::decode(self.bytes_iterator.jump_to(cell_offset));
-
             let (row_id, _) = varint::decode(&mut self.bytes_iterator);
             let record = self.read_record(true).unwrap();
-
-            //println!("{:?}", record);
 
             cells.push(Box::new(TableLeafCell {
                 record_size,
@@ -124,17 +103,11 @@ impl PageReader {
     }
 
     fn read_index_int_cell(&mut self, cell_count: u16) -> Option<Box<[Box<dyn Cell>]>> {
-        let mut cell_offsets_iterator = self
-            .bytes_iterator
-            .next_n_as_iter(cell_count as usize * 2_usize)
-            .unwrap();
+        let mut cell_offsets_iterator = self.new_cell_iterator(cell_count);
         let mut cells: Vec<Box<dyn Cell>> = Vec::new();
         while cell_offsets_iterator.has_next() {
-            let cell_offset = cell_offsets_iterator.next_n(2).unwrap();
-            let cell_offset: usize = u16::from_be_bytes([cell_offset[0], cell_offset[1]]).into();
-
-            let bytes = self.bytes_iterator.jump_to(cell_offset).next_n(4).unwrap();
-            let left_child_page_no = u32::from_be_bytes(bytes[0..=3].try_into().unwrap());
+            let cell_offset = self.read_cell_offset(&mut cell_offsets_iterator);
+            let left_child_page_no = self.read_left_child_page_no(&cell_offset);
             let (record_size, _) = varint::decode(&mut self.bytes_iterator);
             let record = self.read_record(false);
             if record.is_none() {
@@ -152,18 +125,13 @@ impl PageReader {
     }
 
     fn read_index_leaf_cells(&mut self, cell_count: u16) -> Option<Box<[Box<dyn Cell>]>> {
-        let mut cell_offsets_iterator = self
-            .bytes_iterator
-            .next_n_as_iter(cell_count as usize * 2_usize)
-            .unwrap();
+        let mut cell_offsets_iterator = self.new_cell_iterator(cell_count);
         let mut cells: Vec<Box<dyn Cell>> = Vec::new();
         while cell_offsets_iterator.has_next() {
-            let cell_offset = cell_offsets_iterator.next_n(2).unwrap();
-            let cell_offset: usize = u16::from_be_bytes([cell_offset[0], cell_offset[1]]).into();
+            let cell_offset = self.read_cell_offset(&mut cell_offsets_iterator);
             let (record_size, _) = varint::decode(self.bytes_iterator.jump_to(cell_offset));
 
             let record = self.read_record(true).unwrap();
-            //println!("{:?}", record);
 
             cells.push(Box::new(IdxLeafCell {
                 record_size,
@@ -171,6 +139,16 @@ impl PageReader {
             }));
         }
         Some(cells.into())
+    }
+
+    fn read_cell_offset(&mut self, cell_offsets_iterator: &mut BytesIterator) -> usize {
+        let cell_offset = cell_offsets_iterator.next_n(2).unwrap();
+        u16::from_be_bytes(cell_offset[0..2].try_into().unwrap()).into()
+    }
+
+    fn read_left_child_page_no(&mut self, cell_offset: &usize) -> u32 {
+        let bytes = self.bytes_iterator.jump_to(*cell_offset).next_n(4).unwrap();
+        u32::from_be_bytes(bytes[0..=3].try_into().unwrap())
     }
 
     fn read_record(&mut self, null_allowed: bool) -> Option<Record> {
@@ -181,12 +159,10 @@ impl PageReader {
         let mut serial_types = Vec::new();
         let record_header_size_copy = record_header_size;
         let mut record_body_size: u64 = 0;
-        //println!("record header_size {record_header_size}");
         while record_header_size > 0 {
             let (val, bytes_read) = varint::decode(&mut self.bytes_iterator);
             let serial_type: SerialType = self.get_column_serial_type_info(val);
             let size = get_read_size(&serial_type);
-            // println!("{}, {:?}, {}", size, serial_type, bytes_read);
             record_body_size += size;
             serial_types.push(serial_type);
 
@@ -214,18 +190,23 @@ impl PageReader {
                 rows.push(String::new());
                 continue;
             }
-            let row = decode(
+
+            rows.push(decode(
                 serial_type,
                 &record_body_iterator.next_n(read_size as usize).unwrap(),
-            );
-
-            rows.push(row);
+            ));
         }
 
         Some(Record {
             record_header,
             rows,
         })
+    }
+
+    fn new_cell_iterator(&mut self, cell_count: u16) -> BytesIterator {
+        self.bytes_iterator
+            .next_n_as_iter(cell_count as usize * 2_usize)
+            .unwrap()
     }
 
     fn get_column_serial_type_info(&self, val: u64) -> SerialType {

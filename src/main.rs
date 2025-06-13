@@ -26,11 +26,9 @@ fn main() -> Result<()> {
     let mut header_reader = file_reader.read_bytes(18)?;
     let header = header_reader.from_offset(16, 2).unwrap();
     let page_size = u16::from_be_bytes([header[0], header[1]]);
-    // let mut free_list_page_iter = file_reader.read_bytes_from(36, 8)?;
     let mut builder = PageReaderBuilder::new(file_reader, page_size);
 
     let mut db_root_page_reader = builder.new_reader(1_u32);
-    // println!("Reading root page...");
     let db_root_page = db_root_page_reader.read_page();
     let create_replacement_map: HashMap<&str, &str> =
         HashMap::from([("\n", ""), ("\t", ""), ("\"", "")]);
@@ -81,28 +79,28 @@ fn main() -> Result<()> {
                     let table_name = select_query_details.stmt.table_name;
                     let select_col_names = select_query_details.stmt.columns;
                     let root_leaf_page_cell =
-                        fetch_cell::<TableLeafCell>(&table_name, "table", &db_root_page);
-                    let root_index_page_cell =
-                        fetch_cell::<TableLeafCell>(&table_name, "index", &db_root_page);
+                        fetch_cell(&table_name, "table", &db_root_page).expect("Table not found");
 
-                    if root_leaf_page_cell.is_none() {
-                        bail!("Table not found {table_name}");
-                    }
-
-                    let root_leaf_page_cell = root_leaf_page_cell.unwrap().deref();
                     let create_table_details =
                         get_query_details(root_leaf_page_cell, &create_replacement_map);
-                    let filter =
-                        get_filter_col_pos(select_query_details.stmt.filter, &create_table_details);
 
-                    if select_query_details.stmt.is_star.unwrap() && count {
+                    if select_query_details
+                        .stmt
+                        .is_star
+                        .expect("select query expects a boolean")
+                        && count
+                    {
                         data_filter_processor::count_all_rows(root_leaf_page_cell, &mut builder);
                     } else {
+                        let root_index_page_cell = fetch_cell(&table_name, "index", &db_root_page);
+                        let filter = get_filter_col_pos(
+                            select_query_details.stmt.filter,
+                            &create_table_details,
+                        );
                         match root_index_page_cell {
                             Some(root_index_page_cell) => {
-                                // we have an index
                                 data_filter_processor::perform_index_scan(
-                                    root_index_page_cell.deref(),
+                                    root_index_page_cell,
                                     root_leaf_page_cell,
                                     &mut builder,
                                     select_col_names,
@@ -132,24 +130,13 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn fetch_cell<'a, T: Cell>(
-    table_name: &str,
-    schema_type: &str,
-    page: &'a Page,
-) -> Option<&'a Box<dyn Cell>> {
-    // println!("fetching cell idx for {page}");
-    let cell_idx = page
-        .cells
-        .iter()
-        .position(|cell| match downcast::<T>(cell) {
-            Some(cell) => {
-                let rows = cell.record().unwrap().rows;
-                rows.get(2).unwrap() == table_name && rows.first().unwrap() == schema_type
-            }
-            None => false,
-        });
-    match cell_idx {
-        Some(idx) => Some(&page.cells[idx]),
+fn fetch_cell<'a>(table_name: &str, schema_type: &str, page: &'a Page) -> Option<&'a dyn Cell> {
+    let cell = page.cells.iter().find(|cell| {
+        let rows = cell.record().unwrap().rows;
+        rows.get(2).unwrap() == table_name && rows.first().unwrap() == schema_type
+    });
+    match cell {
+        Some(cell) => Some(cell.deref()),
         None => None,
     }
 }
