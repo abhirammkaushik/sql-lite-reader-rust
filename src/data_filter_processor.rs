@@ -92,6 +92,8 @@ fn fetch_indexed_rows(
         |cell: &dyn Cell| -> String { cell.record().unwrap().rows.first().unwrap().to_string() };
 
     while page.page_header.page_type == PageType::IdxInt {
+        // println!("{:?}", page);
+        // println!("{:?}", page_to_read);
         let cells = page.cells.deref();
         let res = bin_search_payload::<IdxIntCell>(cells, &filter_value, &payload_extractor_fn);
         page_to_read = match res {
@@ -106,21 +108,20 @@ fn fetch_indexed_rows(
         page = builder.new_reader(page_to_read).read_page();
     }
 
-    if record_ids.is_empty() {
-        return record_ids;
-    }
-
-    let mut cell_idx = match bin_search_payload::<IdxLeafCell>(
+    let cell_idx = match bin_search_payload::<IdxLeafCell>(
         page.clone().cells.deref(),
         &filter_value,
         &payload_extractor_fn,
     ) {
-        IndexedSearchResult::ThisPage(_, cell_idx) => cell_idx,
-        IndexedSearchResult::LeftPage(_) | IndexedSearchResult::RightPage => {
-            panic!("index contains entry but leaf doesn't. Page no: {page_to_read}")
-        }
+        IndexedSearchResult::ThisPage(_, cell_idx) => cell_idx as i64,
+        IndexedSearchResult::LeftPage(_) | IndexedSearchResult::RightPage => -1,
     };
 
+    if cell_idx < 0 {
+        return vec![];
+    }
+
+    let mut cell_idx = cell_idx as u32;
     'outer: loop {
         let cells = page.cells.deref();
         let len = page.cells.deref().len() as u32;
