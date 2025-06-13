@@ -68,7 +68,6 @@ fn main() -> Result<()> {
                     .replace("\n", "")
                     .replace("\t", "");
                 sqls.push_str(&sql);
-                // println!("{:?}", cell.record.rows.get(3));
             }
 
             println!("{:?}", tables.trim());
@@ -91,32 +90,13 @@ fn main() -> Result<()> {
                     }
 
                     let root_leaf_page_cell = root_leaf_page_cell.unwrap().deref();
-
                     let create_table_details =
                         get_query_details(root_leaf_page_cell, &create_replacement_map);
-
-                    // println!("{:?}", create_table_details);
                     let filter =
                         get_filter_col_pos(select_query_details.stmt.filter, &create_table_details);
 
                     if select_query_details.stmt.is_star.unwrap() && count {
-                        let (page_no, page) = data_filter_processor::fetch_table_first_page(
-                            root_leaf_page_cell,
-                            &mut builder,
-                        );
-                        let page_num_and_page: Vec<(u32, Page)> =
-                            data_filter_processor::fetch_all_leaves_for_table(
-                                page,
-                                &mut builder,
-                                page_no,
-                            );
-                        println!(
-                            "{:?}",
-                            page_num_and_page
-                                .iter()
-                                .map(|(_, page)| page.page_header.cell_count as u64)
-                                .sum::<u64>()
-                        );
+                        data_filter_processor::count_all_rows(root_leaf_page_cell, &mut builder);
                     } else {
                         match root_index_page_cell {
                             Some(root_index_page_cell) => {
