@@ -338,12 +338,8 @@ fn decode_match(filter: &Filter, rows: &[String]) -> bool {
 
 pub fn fetch_table_first_page(cell: &dyn Cell, builder: &mut PageReaderBuilder) -> (u32, Page) {
     /* page where the table is stored */
-    println!("{:?}", cell);
-    let page_no: u8 = cell.record().unwrap().rows.get(3).unwrap().parse().unwrap();
-    (
-        page_no as u32,
-        builder.new_reader(page_no as u16).read_page(),
-    )
+    let page_no: u32 = cell.record().unwrap().rows.get(3).unwrap().parse().unwrap();
+    (page_no, builder.new_reader(page_no as u16).read_page())
 }
 
 fn get_column_position(
