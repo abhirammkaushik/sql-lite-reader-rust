@@ -110,7 +110,7 @@ impl PageReader {
             let (record_size, _) = varint::decode(self.bytes_iterator.jump_to(cell_offset));
 
             let (row_id, _) = varint::decode(&mut self.bytes_iterator);
-            let record = self.read_record();
+            let record = self.read_record(true).unwrap();
 
             //println!("{:?}", record);
 
@@ -136,7 +136,12 @@ impl PageReader {
             let bytes = self.bytes_iterator.jump_to(cell_offset).next_n(4).unwrap();
             let left_child_page_no = u32::from_be_bytes(bytes[0..=3].try_into().unwrap());
             let (record_size, _) = varint::decode(&mut self.bytes_iterator);
-            let record = self.read_record();
+            let record = self.read_record(false);
+            if record.is_none() {
+                continue;
+            }
+            let record = record.unwrap();
+
             cells.push(Box::new(IdxIntCell {
                 record_size,
                 left_child_page_no,
@@ -157,7 +162,7 @@ impl PageReader {
             let cell_offset: usize = u16::from_be_bytes([cell_offset[0], cell_offset[1]]).into();
             let (record_size, _) = varint::decode(self.bytes_iterator.jump_to(cell_offset));
 
-            let record = self.read_record();
+            let record = self.read_record(true).unwrap();
             //println!("{:?}", record);
 
             cells.push(Box::new(IdxLeafCell {
@@ -168,7 +173,7 @@ impl PageReader {
         Some(cells.into())
     }
 
-    fn read_record(&mut self) -> Record {
+    fn read_record(&mut self, null_allowed: bool) -> Option<Record> {
         let (mut record_header_size, bytes_read) = varint::decode(&mut self.bytes_iterator);
 
         record_header_size -= bytes_read;
@@ -201,6 +206,10 @@ impl PageReader {
 
         for serial_type in record_header.serial_types.iter() {
             let read_size = get_read_size(serial_type);
+            if !null_allowed && serial_type == &SerialType::NULL {
+                return None;
+            }
+
             if read_size == 0 {
                 rows.push(String::new());
                 continue;
@@ -213,10 +222,10 @@ impl PageReader {
             rows.push(row);
         }
 
-        Record {
+        Some(Record {
             record_header,
             rows,
-        }
+        })
     }
 
     fn get_column_serial_type_info(&self, val: u64) -> SerialType {
